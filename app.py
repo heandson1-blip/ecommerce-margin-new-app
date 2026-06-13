@@ -397,10 +397,13 @@ with tab_search:
             page_df["⭐ 관심"] = page_df["product_id"].astype(str).isin(tracked_ids)
 
             show_cols = ["⭐ 관심", "site", "product_id", "name", "supply_price",
-                         "delivery_fee", "상태", "추천 판매가(원)", "예상 순수익(원)", "마진율(%)"]
+                         "delivery_fee", "상태", "추천 판매가(원)", "예상 순수익(원)", "마진율(%)", "seller_grade"]
+            # seller_grade 없는 경우 기본값
+            if "seller_grade" not in page_df.columns:
+                page_df["seller_grade"] = "- 미확인"
             disp = page_df[show_cols].copy()
-            disp.columns = ["⭐ 관심", "소싱처", "상품코드", "상품명", "공급가(원)",
-                            "배송비(원)", "상태", "추천 판매가(원)", "예상 순수익(원)", "마진율(%)"]
+            disp.columns = ["⭐ 관심", "소싱업체", "상품번호", "상품명", "공급가(원)",
+                            "배송비(원)", "상태", "추천 판매가(원)", "예상 순수익(원)", "마진율(%)", "업체등급"]
 
             edited = st.data_editor(
                 disp, use_container_width=True, hide_index=True,
@@ -414,6 +417,8 @@ with tab_search:
                     "추천 판매가(원)":st.column_config.NumberColumn(format="%d원"),
                     "예상 순수익(원)":st.column_config.NumberColumn(format="%d원"),
                     "마진율(%)":      st.column_config.NumberColumn(format="%.1f%%"),
+                    "업체등급":       st.column_config.TextColumn("업체등급",
+                        help="⭐S > 🔵A > 🟢B > 🟡C > 🟠D > 🔴E 순으로 높을수록 신뢰도가 높습니다."),
                 },
             )
 

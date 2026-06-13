@@ -1,5 +1,11 @@
 import requests, json, time
 
+GRADE_MAP = {
+    "s": "⭐ S등급", "a": "🔵 A등급", "b": "🟢 B등급",
+    "c": "🟡 C등급", "d": "🟠 D등급", "e": "🔴 E등급",
+    "": "- 미확인",
+}
+
 class DomeameClient:
     def __init__(self, api_key: str):
         self.api_key  = api_key
@@ -36,7 +42,6 @@ class DomeameClient:
         return all_results
 
     def fetch_item_detail(self, product_id: str) -> dict | None:
-        """상세 조회 — deli 객체에서 정확한 배송비 파싱"""
         params = {"ver":"4.1","mode":"getItemView","aid":self.api_key,
                   "no":product_id,"om":"json"}
         try:
@@ -50,45 +55,47 @@ class DomeameClient:
             s = self._safe
             state  = s(item.get("state"), "2")
             stock  = s(item.get("stock"), "999")
-            status = "N" if state in ["3","4"] or stock == "0" else "Y"
+            status = "N" if state in ["3","4"] or stock=="0" else "Y"
             raw_price = s(item.get("price","0")).replace(",","")
-
-            # ★ 배송비: deli 객체에서 파싱
             delivery_fee = self._parse_delivery(item.get("deli", {}))
-
+            # 상세에서도 seller 등급 파싱
+            seller_grade = self._parse_grade(item.get("seller", {}))
             return {
                 "status":       status,
                 "supply_price": int(raw_price) if raw_price.isdigit() else 0,
                 "delivery_fee": delivery_fee,
+                "seller_grade": seller_grade,
             }
         except Exception as e:
             print(f"[상세 오류] {product_id}: {e}")
             return None
 
     @staticmethod
+    def _parse_grade(seller) -> str:
+        """seller 객체에서 등급 파싱. grade 또는 level 필드."""
+        if not seller:
+            return "- 미확인"
+        def safe(v):
+            if isinstance(v, dict):
+                return v.get("#cdata-section", v.get("#text",""))
+            return str(v) if v else ""
+        grade = safe(seller.get("grade","")) or safe(seller.get("level",""))
+        return GRADE_MAP.get(grade.lower(), f"- {grade}" if grade else "- 미확인")
+
+    @staticmethod
     def _parse_delivery(deli) -> int:
-        """
-        deli 필드 형식:
-          {"who":"P","fee":"3000","add":true}  또는
-          {"who":"F","fee":"0"}  → 무료배송
-          문자열 "0" 또는 숫자 0 → 무료
-        """
         if not deli:
             return 3000
         if isinstance(deli, (str, int)):
             raw = str(deli).replace(",","")
             return int(raw) if raw.isdigit() else 3000
-
-        # dict 형태
         def safe(v, d=""):
             if isinstance(v, dict):
                 return v.get("#cdata-section", v.get("#text", d))
             return str(v) if v is not None else d
-
         who = safe(deli.get("who","")).upper()
-        if who == "F":          # F = Free(무료배송)
+        if who == "F":
             return 0
-
         fee_raw = safe(deli.get("fee","0")).replace(",","")
         return int(fee_raw) if fee_raw.isdigit() else 3000
 
@@ -109,15 +116,14 @@ class DomeameClient:
             items = data.get("domeggook",{}).get("list",{}).get("item",[])
             if isinstance(items, dict): items = [items]
             if not isinstance(items, list): return []
-
             s = self._safe
             for item in items:
                 state  = s(item.get("state"),"2")
                 stock  = s(item.get("stock"),"999")
                 status = "N" if state in ["3","4"] or stock=="0" else "Y"
-                raw_price = s(item.get("price","0")).replace(",","")
-                # ★ 목록 API에도 deli.fee 포함됨 — 직접 파싱
+                raw_price    = s(item.get("price","0")).replace(",","")
                 delivery_fee = self._parse_delivery(item.get("deli", {}))
+                seller_grade = self._parse_grade(item.get("seller", {}))
                 results.append({
                     "site":         site_name,
                     "product_id":   s(item.get("no"),""),
@@ -125,6 +131,7 @@ class DomeameClient:
                     "supply_price": int(raw_price) if raw_price.isdigit() else 0,
                     "delivery_fee": delivery_fee,
                     "status":       status,
+                    "seller_grade": seller_grade,
                 })
         except Exception as e:
             print(f"[파싱 오류] {e}")
