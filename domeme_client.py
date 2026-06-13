@@ -1,13 +1,11 @@
 import requests, json, time
 
-# 도매꾹 등급 매핑 (API 응답값 → 표시 문자)
 GRADE_MAP = {
-    "s":"⭐ S등급","platinum":"⭐ S등급",
-    "a":"🔵 A등급","gold":"🔵 A등급",
-    "b":"🟢 B등급","silver":"🟢 B등급",
-    "c":"🟡 C등급","bronze":"🟡 C등급",
-    "d":"🟠 D등급","d":"🟠 D등급",
-    "e":"🔴 E등급","f":"🔴 F등급",
+    "s":"⭐ S등급", "platinum":"⭐ S등급",
+    "a":"🔵 A등급", "gold":"🔵 A등급",
+    "b":"🟢 B등급", "silver":"🟢 B등급",
+    "c":"🟡 C등급", "bronze":"🟡 C등급",
+    "d":"🟠 D등급", "e":"🔴 E등급", "f":"🔴 F등급",
     "1":"⭐ 1등급","2":"🔵 2등급","3":"🟢 3등급",
     "4":"🟡 4등급","5":"🟠 5등급",
 }
@@ -18,13 +16,13 @@ class DomeameClient:
         self.api_key  = api_key
         self.base_url = "https://domeggook.com/ssl/api/"
 
-    # ── 목록 조회 ─────────────────────────────────────────────
     def fetch_product_list(self, market="supply", keyword="",
                            category_code="0000", page_size=50, max_pages=2) -> list[dict]:
         site_name = "도매매" if market == "supply" else "도매꾹"
         page_size = max(10, min(page_size, 100))
-        max_pages = max(1,  min(max_pages, 10))
+        max_pages = max(1, min(max_pages, 10))
         all_results = []
+        first_page = True
         for pg in range(1, max_pages + 1):
             params = {"ver":"4.1","mode":"getItemList","aid":self.api_key,
                       "market":market,"om":"json","sz":page_size,"pg":pg}
@@ -36,7 +34,8 @@ class DomeameClient:
                 resp = requests.get(self.base_url, params=params, timeout=20)
                 if resp.status_code != 200:
                     break
-                page_data = self._parse_list(resp.text, site_name)
+                page_data, raw_keys = self._parse_list(resp.text, site_name, dump_keys=first_page)
+                first_page = False
                 if not page_data:
                     break
                 all_results.extend(page_data)
@@ -49,7 +48,6 @@ class DomeameClient:
                 print(f"[{site_name}] 오류: {e}"); break
         return all_results
 
-    # ── 상세 조회 (관심 등록 시 배송비+등급 갱신) ──────────────
     def fetch_item_detail(self, product_id: str) -> dict | None:
         params = {"ver":"4.1","mode":"getItemView","aid":self.api_key,
                   "no":product_id,"om":"json"}
@@ -61,49 +59,65 @@ class DomeameClient:
             item = data.get("domeggook", {}).get("item", {})
             if not item:
                 return None
+
+            # ★ 전체 필드 덤프 (등급 필드명 확인용)
+            print(f"[상세 전체 키] {list(item.keys())}")
+            seller_raw = item.get("seller", {})
+            print(f"[상세 seller] {json.dumps(seller_raw, ensure_ascii=False)}")
+
             s = self._safe
             state  = s(item.get("state"), "2")
             stock  = s(item.get("stock"), "999")
             status = "N" if state in ["3","4"] or stock=="0" else "Y"
             raw_price    = s(item.get("price","0")).replace(",","")
             delivery_fee = self._parse_deli(item.get("deli", {}))
-            # 상세 API seller 객체 — 실제 필드명 로깅
-            seller_raw   = item.get("seller", {})
             seller_grade = self._parse_grade(seller_raw)
-            print(f"[상세 seller raw] {json.dumps(seller_raw, ensure_ascii=False)}")
+
+            # 이미지: 상세 API에서 img 또는 image 필드
+            image_url = self._parse_image(item, product_id)
+
             return {
                 "status":       status,
                 "supply_price": int(raw_price) if raw_price.isdigit() else 0,
                 "delivery_fee": delivery_fee,
                 "seller_grade": seller_grade,
+                "image_url":    image_url,
             }
         except Exception as e:
             print(f"[상세 오류] {product_id}: {e}")
             return None
 
-    # ── 내부 헬퍼 ─────────────────────────────────────────────
-    @staticmethod
-    def _safe(v, d="") -> str:
-        if isinstance(v, dict):
-            return v.get("#cdata-section", v.get("#text", d))
-        return str(v).strip() if v is not None else d
+    # ── 이미지 URL 파싱 ───────────────────────────────────────
+    def _parse_image(self, item: dict, product_id: str) -> str:
+        s = self._safe
+        # API 응답의 여러 이미지 필드 시도
+        for field in ["img","image","thumb","thumbnail","photo","pic"]:
+            val = s(item.get(field, ""))
+            if val and val.startswith("http"):
+                return val
 
+        # 이미지 필드가 없으면 도매꾹 상품 페이지 썸네일 URL 조합
+        # 도매꾹 상품 이미지 패턴: https://img.domeggook.com/main/{no}/1.jpg
+        if product_id:
+            return f"https://img.domeggook.com/main/{product_id}/1.jpg"
+        return ""
+
+    # ── 등급 파싱 ─────────────────────────────────────────────
     def _parse_grade(self, seller) -> str:
         if not seller:
-            return "조회중"   # 목록 API에는 없음 — 관심 등록 시 상세 조회로 갱신
+            return ""
         s = self._safe
-        # 가능한 모든 필드 시도
         raw = (s(seller.get("grade")) or s(seller.get("level"))
                or s(seller.get("sellerGrade")) or s(seller.get("rank"))
                or s(seller.get("rating")) or s(seller.get("star"))
-               or s(seller.get("tier")) or "")
+               or s(seller.get("tier")) or s(seller.get("class"))
+               or s(seller.get("point")) or "")
         if not raw:
-            # seller 객체 안에 등급 관련 키가 있으면 출력
-            all_keys = list(seller.keys()) if isinstance(seller, dict) else []
-            print(f"[등급 미확인] seller keys: {all_keys}")
-            return "- 미확인"
-        return GRADE_MAP.get(raw.lower(), f"- {raw}")
+            print(f"[등급 미확인] seller keys: {list(seller.keys()) if isinstance(seller, dict) else seller}")
+            return ""
+        return GRADE_MAP.get(raw.lower().strip(), f"- {raw}")
 
+    # ── 배송비 파싱 ───────────────────────────────────────────
     def _parse_deli(self, deli) -> int:
         if not deli:
             return 3000
@@ -117,22 +131,27 @@ class DomeameClient:
         fee_raw = s(deli.get("fee","0")).replace(",","")
         return int(fee_raw) if fee_raw.isdigit() else 3000
 
-    def _parse_list(self, raw: str, site_name: str) -> list[dict]:
+    @staticmethod
+    def _safe(v, d="") -> str:
+        if isinstance(v, dict):
+            return v.get("#cdata-section", v.get("#text", d))
+        return str(v).strip() if v is not None else d
+
+    def _parse_list(self, raw: str, site_name: str, dump_keys=False):
         results = []
         try:
             data  = json.loads(raw)
             err   = data.get("domeggook",{}).get("error")
             if err:
                 print(f"[API Error] {site_name}: {err}")
-                return []
+                return [], []
             items = data.get("domeggook",{}).get("list",{}).get("item",[])
             if isinstance(items, dict): items = [items]
-            if not isinstance(items, list): return []
+            if not isinstance(items, list): return [], []
 
-            # 첫 번째 아이템 전체 키 출력 (한 번만)
-            if items:
-                first_keys = list(items[0].keys())
-                print(f"[목록 API 필드] {first_keys}")
+            if dump_keys and items:
+                print(f"[목록 전체 키] {list(items[0].keys())}")
+                print(f"[목록 seller] {items[0].get('seller','NO_SELLER')}")
 
             s = self._safe
             for item in items:
@@ -141,18 +160,20 @@ class DomeameClient:
                 status = "N" if state in ["3","4"] or stock=="0" else "Y"
                 raw_price    = s(item.get("price","0")).replace(",","")
                 delivery_fee = self._parse_deli(item.get("deli", {}))
-                # 목록 API에 seller 있으면 파싱, 없으면 "조회중" (관심 등록 시 갱신)
-                seller_raw   = item.get("seller", {})
-                seller_grade = self._parse_grade(seller_raw) if seller_raw else "조회중"
+                seller_grade = self._parse_grade(item.get("seller", {}))
+                product_id   = s(item.get("no"),"")
+                image_url    = self._parse_image(item, product_id)
+
                 results.append({
                     "site":         site_name,
-                    "product_id":   s(item.get("no"),""),
+                    "product_id":   product_id,
                     "name":         s(item.get("title"),"이름 없음"),
                     "supply_price": int(raw_price) if raw_price.isdigit() else 0,
                     "delivery_fee": delivery_fee,
                     "status":       status,
                     "seller_grade": seller_grade,
+                    "image_url":    image_url,
                 })
         except Exception as e:
             print(f"[파싱 오류] {e}")
-        return results
+        return results, []
