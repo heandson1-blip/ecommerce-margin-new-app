@@ -437,15 +437,21 @@ with tab_search:
                     upsert_tracked_product(prod, is_track)
                     any_changed = True
             if any_changed:
+                # 스크롤 위치를 검색 결과 섹션으로 고정
+                st.markdown(
+                    "<script>setTimeout(()=>{const el=document.getElementById('result-top');if(el)el.scrollIntoView({behavior:'auto',block:'center'});},100);</script>",
+                    unsafe_allow_html=True
+                )
                 st.rerun()
 
             pn1, pn2, pn3 = st.columns([1, 3, 1])
             with pn1:
                 if st.button("◀ 이전", disabled=(page_num == 0), use_container_width=True):
                     st.session_state["page_num"] = page_num - 1
+                    st.session_state["_scroll_preserve"] = True
                     st.rerun()
             with pn2:
-                st.markdown(f"<div style='text-align:center;color:#64748b;font-size:0.85rem;padding-top:0.5rem'>{page_num+1} / {total_pg} 페이지 | 총 {len(df):,}개</div>", unsafe_allow_html=True)
+                st.markdown(f"<div id='result-top' style='text-align:center;color:#64748b;font-size:0.85rem;padding-top:0.5rem'>{page_num+1} / {total_pg} 페이지 | 총 {len(df):,}개</div>", unsafe_allow_html=True)
             with pn3:
                 if st.button("다음 ▶", disabled=(page_num >= total_pg - 1), use_container_width=True):
                     st.session_state["page_num"] = page_num + 1
@@ -509,7 +515,7 @@ with tab_monitor:
                 "예상 순수익(원)": st.column_config.NumberColumn(format="%d원"),
                 "마진율(%)":       st.column_config.NumberColumn(format="%.1f%%"),
             },
-            disabled=[c for c in m_cols if c != "❌ 해제"],
+            disabled=[c for c in mdf_disp.columns if c != "❌ 해제"],
             use_container_width=True, hide_index=True, key="tracked_editor",
         )
 
@@ -531,6 +537,76 @@ with tab_monitor:
                 st.success("전송 완료!")
             else:
                 st.error("전송 실패")
+
+        # ── AI 소싱 분석 ──────────────────────────────────────
+        st.markdown("---")
+        st.markdown("#### 🤖 AI 소싱 분석")
+        st.caption("관심 상품 목록을 AI가 분석하여 소싱 가치와 리스크를 평가합니다.")
+
+        if st.button("✨ AI 소싱 분석 시작", type="primary", use_container_width=True):
+            if tracked_df.empty:
+                st.warning("관심 상품이 없습니다.")
+            else:
+                with st.spinner("AI가 관심 상품을 분석 중입니다..."):
+                    # 분석용 상품 데이터 요약
+                    items_summary = []
+                    for _, row in tracked_df.iterrows():
+                        items_summary.append(
+                            f"- 상품명: {row['name'][:40]}"
+                            f" | 소싱처: {row.get('site','')}"
+                            f" | 공급가: {int(row['supply_price']):,}원"
+                            f" | 배송비: {int(row['delivery_fee']):,}원"
+                            f" | 추천판매가: {int(row['추천 판매가(원)']):,}원"
+                            f" | 예상순수익: {int(row['예상 순수익(원)']):,}원"
+                            f" | 마진율: {row['마진율(%)']:.1f}%"
+                            f" | 업체등급: {row.get('seller_grade','미확인')}"
+                            f" | 상태: {'정상' if row['status']=='Y' else '품절'}"
+                        )
+
+                    prompt = f"""당신은 20년 경력의 이커머스 소싱 전문가입니다.
+아래는 판매자가 관심 등록한 도매 상품 목록입니다. 각 상품에 대해 소싱 가치를 분석해주세요.
+
+[현재 판매 플랫폼 설정]
+- 플랫폼: {platform_name} (수수료 {int(fee*100)}%)
+- 마진 전략: {margin_name}
+
+[관심 상품 목록]
+{chr(10).join(items_summary)}
+
+다음 기준으로 각 상품을 분석해주세요:
+1. **소싱 추천도**: ✅ 강력추천 / 👍 추천 / ⚠️ 주의 / ❌ 비추천
+2. **핵심 근거**: 마진율·업체등급·가격 경쟁력 기준 2-3줄
+3. **리스크 요인**: 있다면 명시
+4. **전체 포트폴리오 총평**: 마지막에 2-3줄
+
+응답은 한국어로, 각 상품별로 간결하게 작성하세요."""
+
+                    try:
+                        import requests as req
+                        ai_resp = req.post(
+                            "https://api.anthropic.com/v1/messages",
+                            headers={"Content-Type": "application/json"},
+                            json={
+                                "model": "claude-sonnet-4-6",
+                                "max_tokens": 1500,
+                                "messages": [{"role": "user", "content": prompt}]
+                            },
+                            timeout=30
+                        )
+                        if ai_resp.status_code == 200:
+                            ai_data = ai_resp.json()
+                            analysis = ai_data["content"][0]["text"]
+                            st.markdown("**📊 AI 분석 결과**")
+                            st.markdown(analysis)
+
+                            # 텔레그램으로도 전송 옵션
+                            if st.button("📱 이 분석 결과도 텔레그램으로 전송"):
+                                send_telegram_message(f"🤖 AI 소싱 분석 결과\n\n{analysis[:1000]}")
+                                st.success("전송 완료!")
+                        else:
+                            st.error(f"AI 분석 오류: {ai_resp.status_code}")
+                    except Exception as e:
+                        st.error(f"AI 분석 중 오류: {e}")
 
 
 # ══════════════════════════════════════════
