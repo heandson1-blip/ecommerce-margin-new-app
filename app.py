@@ -116,7 +116,7 @@ def load_tracked_db():
         )
         conn.close()
         return df if not df.empty else pd.DataFrame(
-            columns=["product_id","site","name","supply_price","delivery_fee","status","is_tracked","updated_at"]
+            columns=["product_id","site","name","supply_price","delivery_fee","status","is_tracked","등록시간"]
         )
     except Exception as e:
         st.error(f"DB 오류: {e}")
@@ -417,19 +417,22 @@ with tab_search:
                 },
             )
 
+            any_changed = False
             for i in range(len(edited)):
                 if edited.iloc[i]["⭐ 관심"] != disp.iloc[i]["⭐ 관심"]:
-                    prod = page_df.iloc[i].to_dict()
+                    prod     = page_df.iloc[i].to_dict()
                     is_track = 1 if edited.iloc[i]["⭐ 관심"] else 0
                     # ★ 관심 등록 시 상세 조회로 정확한 배송비 갱신
                     if is_track and client and prod.get("site") in ["도매매", "도매꾹"]:
                         detail = client.fetch_item_detail(str(prod["product_id"]))
                         if detail:
-                            prod["delivery_fee"]  = detail.get("delivery_fee", prod["delivery_fee"])
-                            prod["supply_price"]  = detail.get("supply_price", prod["supply_price"])
-                            prod["status"]        = detail.get("status", prod["status"])
+                            prod["delivery_fee"] = detail.get("delivery_fee", prod["delivery_fee"])
+                            prod["supply_price"] = detail.get("supply_price", prod["supply_price"])
+                            prod["status"]       = detail.get("status", prod["status"])
                     upsert_tracked_product(prod, is_track)
-                    st.rerun()
+                    any_changed = True
+            if any_changed:
+                st.rerun()
 
             pn1, pn2, pn3 = st.columns([1, 3, 1])
             with pn1:
@@ -488,7 +491,7 @@ with tab_monitor:
 
         mdf["❌ 해제"] = True
         m_cols = [c for c in ["❌ 해제","site","product_id","name","supply_price","delivery_fee",
-                               "상태","추천 판매가(원)","예상 순수익(원)","마진율(%)","updated_at"] if c in mdf.columns]
+                               "상태","추천 판매가(원)","예상 순수익(원)","마진율(%)","등록시간"] if c in mdf.columns]
         mdf_disp = mdf[m_cols].copy()
 
         edited_m = st.data_editor(
