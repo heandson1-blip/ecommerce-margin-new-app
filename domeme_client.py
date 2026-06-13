@@ -1,15 +1,29 @@
 import requests, json, time
 
+# 도매꾹 등급 매핑 (API 응답값 → 표시 문자)
+GRADE_MAP = {
+    "s":"⭐ S등급","platinum":"⭐ S등급",
+    "a":"🔵 A등급","gold":"🔵 A등급",
+    "b":"🟢 B등급","silver":"🟢 B등급",
+    "c":"🟡 C등급","bronze":"🟡 C등급",
+    "d":"🟠 D등급","d":"🟠 D등급",
+    "e":"🔴 E등급","f":"🔴 F등급",
+    "1":"⭐ 1등급","2":"🔵 2등급","3":"🟢 3등급",
+    "4":"🟡 4등급","5":"🟠 5등급",
+}
+
+
 class DomeameClient:
     def __init__(self, api_key: str):
         self.api_key  = api_key
         self.base_url = "https://domeggook.com/ssl/api/"
 
-    def fetch_product_list(self, market="supply", keyword="", category_code="0000",
-                           page_size=50, max_pages=2) -> list[dict]:
+    # ── 목록 조회 ─────────────────────────────────────────────
+    def fetch_product_list(self, market="supply", keyword="",
+                           category_code="0000", page_size=50, max_pages=2) -> list[dict]:
         site_name = "도매매" if market == "supply" else "도매꾹"
         page_size = max(10, min(page_size, 100))
-        max_pages = max(1, min(max_pages, 10))
+        max_pages = max(1,  min(max_pages, 10))
         all_results = []
         for pg in range(1, max_pages + 1):
             params = {"ver":"4.1","mode":"getItemList","aid":self.api_key,
@@ -26,7 +40,7 @@ class DomeameClient:
                 if not page_data:
                     break
                 all_results.extend(page_data)
-                print(f"[{site_name}] pg={pg} → {len(page_data)}개")
+                print(f"[{site_name}] pg={pg} → {len(page_data)}개 (누적 {len(all_results)})")
                 if len(page_data) < page_size:
                     break
                 if pg < max_pages:
@@ -35,8 +49,8 @@ class DomeameClient:
                 print(f"[{site_name}] 오류: {e}"); break
         return all_results
 
+    # ── 상세 조회 (관심 등록 시 배송비+등급 갱신) ──────────────
     def fetch_item_detail(self, product_id: str) -> dict | None:
-        """상세 조회 — 등급 포함 모든 필드 파싱"""
         params = {"ver":"4.1","mode":"getItemView","aid":self.api_key,
                   "no":product_id,"om":"json"}
         try:
@@ -47,19 +61,16 @@ class DomeameClient:
             item = data.get("domeggook", {}).get("item", {})
             if not item:
                 return None
-
-            # ★ 디버그: seller 객체 전체 출력 (등급 필드명 확인용)
-            seller_raw = item.get("seller", {})
-            print(f"[DEBUG seller fields] {seller_raw}")
-
             s = self._safe
             state  = s(item.get("state"), "2")
             stock  = s(item.get("stock"), "999")
             status = "N" if state in ["3","4"] or stock=="0" else "Y"
             raw_price    = s(item.get("price","0")).replace(",","")
-            delivery_fee = self._parse_delivery(item.get("deli", {}))
+            delivery_fee = self._parse_deli(item.get("deli", {}))
+            # 상세 API seller 객체 — 실제 필드명 로깅
+            seller_raw   = item.get("seller", {})
             seller_grade = self._parse_grade(seller_raw)
-
+            print(f"[상세 seller raw] {json.dumps(seller_raw, ensure_ascii=False)}")
             return {
                 "status":       status,
                 "supply_price": int(raw_price) if raw_price.isdigit() else 0,
@@ -70,68 +81,41 @@ class DomeameClient:
             print(f"[상세 오류] {product_id}: {e}")
             return None
 
+    # ── 내부 헬퍼 ─────────────────────────────────────────────
     @staticmethod
-    def _parse_grade(seller) -> str:
-        """
-        도매꾹 seller 객체에서 등급 파싱.
-        실제 필드명: grade / level / point / star 등 API 버전마다 다를 수 있음.
-        디버그 로그로 실제 필드명 확인 후 정확한 필드 사용.
-        """
+    def _safe(v, d="") -> str:
+        if isinstance(v, dict):
+            return v.get("#cdata-section", v.get("#text", d))
+        return str(v).strip() if v is not None else d
+
+    def _parse_grade(self, seller) -> str:
         if not seller:
+            return "조회중"   # 목록 API에는 없음 — 관심 등록 시 상세 조회로 갱신
+        s = self._safe
+        # 가능한 모든 필드 시도
+        raw = (s(seller.get("grade")) or s(seller.get("level"))
+               or s(seller.get("sellerGrade")) or s(seller.get("rank"))
+               or s(seller.get("rating")) or s(seller.get("star"))
+               or s(seller.get("tier")) or "")
+        if not raw:
+            # seller 객체 안에 등급 관련 키가 있으면 출력
+            all_keys = list(seller.keys()) if isinstance(seller, dict) else []
+            print(f"[등급 미확인] seller keys: {all_keys}")
             return "- 미확인"
+        return GRADE_MAP.get(raw.lower(), f"- {raw}")
 
-        def safe(v):
-            if isinstance(v, dict):
-                return v.get("#cdata-section", v.get("#text", ""))
-            return str(v).strip() if v is not None else ""
-
-        # 가능한 등급 필드명 모두 시도
-        grade_val = (
-            safe(seller.get("grade"))
-            or safe(seller.get("level"))
-            or safe(seller.get("sellerGrade"))
-            or safe(seller.get("seller_grade"))
-            or safe(seller.get("rating"))
-            or safe(seller.get("rank"))
-            or safe(seller.get("point"))
-            or ""
-        )
-
-        if not grade_val:
-            return "- 미확인"
-
-        # 등급 매핑 (대소문자 무관)
-        grade_map = {
-            "s": "⭐ S등급", "a": "🔵 A등급", "b": "🟢 B등급",
-            "c": "🟡 C등급", "d": "🟠 D등급", "e": "🔴 E등급",
-            "1": "⭐ 1등급", "2": "🔵 2등급", "3": "🟢 3등급",
-            "4": "🟡 4등급", "5": "🟠 5등급",
-        }
-        key = grade_val.lower().strip()
-        return grade_map.get(key, f"- {grade_val}")
-
-    @staticmethod
-    def _parse_delivery(deli) -> int:
+    def _parse_deli(self, deli) -> int:
         if not deli:
             return 3000
         if isinstance(deli, (str, int)):
             raw = str(deli).replace(",","")
             return int(raw) if raw.isdigit() else 3000
-        def safe(v, d=""):
-            if isinstance(v, dict):
-                return v.get("#cdata-section", v.get("#text", d))
-            return str(v) if v is not None else d
-        who = safe(deli.get("who","")).upper()
+        s = self._safe
+        who = s(deli.get("who","")).upper()
         if who == "F":
             return 0
-        fee_raw = safe(deli.get("fee","0")).replace(",","")
+        fee_raw = s(deli.get("fee","0")).replace(",","")
         return int(fee_raw) if fee_raw.isdigit() else 3000
-
-    @staticmethod
-    def _safe(value, default="") -> str:
-        if isinstance(value, dict):
-            return value.get("#cdata-section", value.get("#text", default))
-        return str(value) if value is not None else default
 
     def _parse_list(self, raw: str, site_name: str) -> list[dict]:
         results = []
@@ -145,9 +129,10 @@ class DomeameClient:
             if isinstance(items, dict): items = [items]
             if not isinstance(items, list): return []
 
-            # ★ 첫 번째 아이템의 seller 필드 디버그
+            # 첫 번째 아이템 전체 키 출력 (한 번만)
             if items:
-                print(f"[DEBUG list seller] {items[0].get('seller', 'NO_SELLER_FIELD')}")
+                first_keys = list(items[0].keys())
+                print(f"[목록 API 필드] {first_keys}")
 
             s = self._safe
             for item in items:
@@ -155,8 +140,10 @@ class DomeameClient:
                 stock  = s(item.get("stock"),"999")
                 status = "N" if state in ["3","4"] or stock=="0" else "Y"
                 raw_price    = s(item.get("price","0")).replace(",","")
-                delivery_fee = self._parse_delivery(item.get("deli", {}))
-                seller_grade = self._parse_grade(item.get("seller", {}))
+                delivery_fee = self._parse_deli(item.get("deli", {}))
+                # 목록 API에 seller 있으면 파싱, 없으면 "조회중" (관심 등록 시 갱신)
+                seller_raw   = item.get("seller", {})
+                seller_grade = self._parse_grade(seller_raw) if seller_raw else "조회중"
                 results.append({
                     "site":         site_name,
                     "product_id":   s(item.get("no"),""),
