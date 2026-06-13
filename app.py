@@ -64,7 +64,13 @@ except Exception:
 
 init_db()
 client    = DomeameClient(api_key=API_KEY) if API_KEY else None
-oc_client = OnchannelClient() if ONCHANNEL_AVAILABLE else None
+# 온채널: Secrets에서 ID/PW 가져오기
+try:
+    OC_ID = st.secrets.get("ONCHANNEL_ID", "")
+    OC_PW = st.secrets.get("ONCHANNEL_PW", "")
+except Exception:
+    OC_ID, OC_PW = "", ""
+oc_client = OnchannelClient(user_id=OC_ID, password=OC_PW) if ONCHANNEL_AVAILABLE else None
 
 # ──────────────────────────────────────────
 # 상수
@@ -210,6 +216,9 @@ with st.sidebar:
     st.markdown("---")
 
     st.markdown("#### 🏪 소싱 설정")
+    if ONCHANNEL_AVAILABLE:
+        oc_status = "✅ 로그인됨" if (OC_ID and OC_PW) else "⚠️ ID/PW 미설정"
+        st.caption(f"온채널: {oc_status}")
 
     # ★ 멀티셀렉트로 여러 소싱처 동시 선택
     site_options = ["도매매", "도매꾹"]
@@ -376,6 +385,7 @@ with tab_search:
             k4.markdown(f'<div class="kpi-card"><div class="kpi-label">최고 순수익</div><div class="kpi-value" style="color:#2563eb">{max_p:,}</div><div class="kpi-sub">원</div></div>', unsafe_allow_html=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
+            st.caption("💡 배송비는 목록 조회 시 3,000원 기본값입니다. ⭐ 관심 등록 시 실제 배송비로 자동 갱신됩니다.")
 
             # 페이지네이션
             disp_size = 50
@@ -409,7 +419,16 @@ with tab_search:
 
             for i in range(len(edited)):
                 if edited.iloc[i]["⭐ 관심"] != disp.iloc[i]["⭐ 관심"]:
-                    upsert_tracked_product(page_df.iloc[i].to_dict(), 1 if edited.iloc[i]["⭐ 관심"] else 0)
+                    prod = page_df.iloc[i].to_dict()
+                    is_track = 1 if edited.iloc[i]["⭐ 관심"] else 0
+                    # ★ 관심 등록 시 상세 조회로 정확한 배송비 갱신
+                    if is_track and client and prod.get("site") in ["도매매", "도매꾹"]:
+                        detail = client.fetch_item_detail(str(prod["product_id"]))
+                        if detail:
+                            prod["delivery_fee"]  = detail.get("delivery_fee", prod["delivery_fee"])
+                            prod["supply_price"]  = detail.get("supply_price", prod["supply_price"])
+                            prod["status"]        = detail.get("status", prod["status"])
+                    upsert_tracked_product(prod, is_track)
                     st.rerun()
 
             pn1, pn2, pn3 = st.columns([1, 3, 1])
