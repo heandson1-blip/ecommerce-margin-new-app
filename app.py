@@ -37,9 +37,8 @@ section[data-testid="stSidebar"] *{color:#cbd5e1 !important}
 .stTabs [data-baseweb="tab-list"]{gap:4px;background:#f1f5f9;border-radius:10px;padding:4px}
 .stTabs [data-baseweb="tab"]{border-radius:8px !important;font-weight:500 !important}
 .stTabs [aria-selected="true"]{background:white !important;box-shadow:0 1px 3px rgba(0,0,0,.1) !important}
-.keyword-card{background:white;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.75rem}
-.keyword-platform{font-size:.75rem;font-weight:700;color:#185FA5;text-transform:uppercase;letter-spacing:.05em;margin-bottom:.5rem}
-.keyword-chip{display:inline-block;background:#EFF6FF;color:#1D4ED8;font-size:.78rem;
+.kw-card{background:white;border:1px solid #e2e8f0;border-radius:10px;padding:1rem 1.2rem;margin-bottom:.75rem}
+.kw-chip{display:inline-block;background:#EFF6FF;color:#1D4ED8;font-size:.78rem;
     padding:3px 10px;border-radius:20px;margin:2px;font-weight:500}
 .ai-section{background:white;border-radius:12px;padding:1.2rem 1.4rem;
     border:1px solid #e2e8f0;margin-bottom:1rem}
@@ -60,7 +59,6 @@ init_db()
 client    = DomeameClient(api_key=DOME_KEY) if DOME_KEY else None
 oc_client = OnchannelClient(user_id=OC_ID, password=OC_PW) if OC_AVAILABLE else None
 
-# ── 상수 ─────────────────────────────────────────────────────
 CATEGORY_MAP={
     "전체보기":{"전체보기":"0000"},
     "패션의류":{"전체보기":"01","여성의류":"0101","남성의류":"0102","언더웨어":"0103"},
@@ -70,56 +68,62 @@ CATEGORY_MAP={
     "식품":{"전체보기":"09","가공식품":"0901","건강식품":"0902","농축수산물":"0903"},
     "가구/인테리어":{"전체보기":"10","가구":"1001","인테리어소품":"1002"},
 }
-
-# ★ 수수료 — 카테고리별 평균 대표값 (2025년 기준)
-# 네이버: 판매수수료2.73% + 결제수수료3.3% ≈ 6%
-# 쿠팡: 카테고리 평균 11%
-# 11번가: 카테고리 평균 12%
-# G마켓: 카테고리 평균 12%
-# 옥션: G마켓과 동일 구조 12%
 PLATFORM_FEE={
-    "네이버 스마트스토어": 0.06,
-    "쿠팡":               0.11,
-    "11번가":             0.12,
-    "G마켓":              0.12,
-    "옥션":               0.12,
+    "네이버 스마트스토어":0.06,
+    "쿠팡":0.11,
+    "11번가":0.12,
+    "G마켓":0.12,
+    "옥션":0.12,
 }
 MARGIN_MAP={"안정형  (10%)":0.10,"밸런스형 (20%)":0.20,"고마진형 (40%)":0.40}
 FETCH_PRESETS={"빠른 탐색  (50개)":(50,1),"일반 검색  (100개)":(50,2),
                "심층 분석  (200개)":(50,4),"대량 수집  (500개)":(50,10)}
-
-# 플랫폼별 키워드 가이드 특성
-PLATFORM_KEYWORD_GUIDE = {
-    "네이버 스마트스토어": {
-        "tip": "네이버 쇼핑 검색 알고리즘은 정확한 상품명 + 핵심 키워드 조합을 선호합니다. 브랜드명 + 상품유형 + 특징 순서를 유지하세요.",
-        "max_len": 100, "max_keywords": 10,
-        "format": "브랜드명 + 상품유형 + 핵심특징 + 타겟/용도",
-    },
-    "쿠팡": {
-        "tip": "쿠팡은 로켓배송 여부와 리뷰 수가 중요합니다. 상품명은 간결하게, 검색태그에 롱테일 키워드를 분산하세요.",
-        "max_len": 50, "max_keywords": 8,
-        "format": "핵심상품명 + 용량/수량 + 주요특징",
-    },
-    "11번가": {
-        "tip": "11번가는 가격 경쟁력과 함께 상세한 상품명이 효과적입니다. SK페이 할인 연동 상품에 유리합니다.",
-        "max_len": 80, "max_keywords": 10,
-        "format": "브랜드 + 상품명 + 모델명/규격 + 수량",
-    },
-    "G마켓": {
-        "tip": "G마켓은 카테고리 최적화가 중요합니다. 스마일클럽 회원 대상 키워드를 포함하면 노출이 유리합니다.",
-        "max_len": 80, "max_keywords": 10,
-        "format": "브랜드 + 상품유형 + 특징 + 구성/용량",
-    },
-    "옥션": {
-        "tip": "옥션은 검색보다 기획전/딜 노출이 중요합니다. 가격 경쟁력 강조 키워드와 묶음할인 구성이 효과적입니다.",
-        "max_len": 80, "max_keywords": 10,
-        "format": "브랜드 + 상품유형 + 구성수량 + 할인/혜택",
-    },
+PLATFORM_KW_GUIDE={
+    "네이버 스마트스토어":{"format":"브랜드+상품유형+핵심특징+타겟/용도","max_len":100,"max_kw":10,
+        "tip":"네이버 쇼핑 알고리즘은 정확한 상품명+핵심 키워드 조합을 선호. 브랜드명+상품유형+특징 순서 유지"},
+    "쿠팡":{"format":"핵심상품명+용량/수량+주요특징","max_len":50,"max_kw":8,
+        "tip":"상품명 간결하게, 검색태그에 롱테일 키워드 분산. 리뷰수와 배송속도가 노출에 영향"},
+    "11번가":{"format":"브랜드+상품명+모델명/규격+수량","max_len":80,"max_kw":10,
+        "tip":"가격 경쟁력과 함께 상세한 상품명 효과적. SK페이 할인 연동 상품 유리"},
+    "G마켓":{"format":"브랜드+상품유형+특징+구성/용량","max_len":80,"max_kw":10,
+        "tip":"카테고리 최적화 중요. 스마일클럽 회원 대상 키워드 포함 시 노출 유리"},
+    "옥션":{"format":"브랜드+상품유형+구성수량+할인/혜택","max_len":80,"max_kw":10,
+        "tip":"기획전/딜 노출 중요. 가격 경쟁력 강조 키워드와 묶음할인 구성 효과적"},
 }
 
+# PDF 가이드 이미지 구성 (가이드북 v2.0 기준)
+IMAGE_GUIDE = [
+    {"no":1,"section":"HOOK","purpose":"3초 안에 시선 확보","height":"1800~2400px",
+     "prompt":"Photorealistic, commercial photography, hero shot of [제품명], premium lifestyle scene, attractive target customer model, clean white background, natural lighting, product centered, modern ecommerce design, realistic texture, high detail, 860px width, 2200px height"},
+    {"no":2,"section":"문제 공감","purpose":"고객의 현실 문제 자극","height":"1500~2000px",
+     "prompt":"Photorealistic split scene showing customer problem situation, emotional expression, relatable daily life context, product not yet introduced, clean commercial photography, natural lighting, ecommerce storytelling, 860px width, 1800px height"},
+    {"no":3,"section":"해결 제안","purpose":"제품 등장 Before/After","height":"1700~2200px",
+     "prompt":"Photorealistic before and after comparison, customer before experiencing problem and after using product, visible positive transformation, premium ecommerce design, natural lighting, 860px width, 2000px height"},
+    {"no":4,"section":"핵심 가치 1","purpose":"가장 강력한 USP","height":"1600~2200px",
+     "prompt":"Photorealistic close-up of product feature, visual emphasis on key benefit, premium commercial photography, minimal background, natural lighting, ecommerce infographic style, 860px width, 1800px height"},
+    {"no":5,"section":"핵심 가치 2","purpose":"두 번째 구매 이유","height":"1600~2200px",
+     "prompt":"Photorealistic benefit-focused product scene, lifestyle application, realistic usage context, clean ecommerce design, natural lighting, 860px width, 1800px height"},
+    {"no":6,"section":"핵심 가치 3","purpose":"세 번째 구매 이유","height":"1600~2200px",
+     "prompt":"Photorealistic macro detail showing product texture, material, ingredient, function or quality, premium commercial photography, natural lighting, 860px width, 1800px height"},
+    {"no":7,"section":"핵심 가치 4","purpose":"경쟁제품 차별화","height":"1600~2200px",
+     "prompt":"Photorealistic comparison concept without competitor branding, highlighting superior product advantage, clean ecommerce layout, natural lighting, 860px width, 1800px height"},
+    {"no":8,"section":"핵심 가치 5","purpose":"사용 편의성/감성 가치","height":"1600~2200px",
+     "prompt":"Photorealistic lifestyle scene showing convenient use of product in daily life, emotional satisfaction, clean premium commercial photography, 860px width, 1800px height"},
+    {"no":9,"section":"신뢰 구간","purpose":"구매 의심 제거","height":"2000~3000px",
+     "prompt":"Photorealistic trust-building ecommerce section, customer review cards, certification placeholders, premium quality presentation, clean infographic layout, commercial photography, 860px width, 2600px height"},
+    {"no":10,"section":"상세 정보","purpose":"구매 판단 완료","height":"2200~3000px",
+     "prompt":"Photorealistic product specification table, clean infographic design, icons and structured information blocks, ecommerce detail page style, modern layout, 860px width, 2800px height"},
+    {"no":11,"section":"구매 전 체크","purpose":"반품 감소 / 구매 확신","height":"1500~1800px",
+     "prompt":"Photorealistic recommendation guide section, customer personas, icon-based information layout, modern ecommerce design, clean white background, natural lighting, 860px width, 1700px height"},
+    {"no":12,"section":"CTA","purpose":"최종 구매 유도","height":"1500~2000px",
+     "prompt":"Photorealistic premium hero product shot, strong purchase motivation, product prominently displayed, elegant ecommerce call-to-action design, natural lighting, clean background, high conversion layout, 860px width, 1800px height"},
+]
+
 for k,v in {"live_results":[],"show_results":False,"search_error":None,
-            "page_num":0,"ai_result":None,"live_view":"table","mon_view":"table",
-            "kw_result":None,"img_prompt":None}.items():
+            "page_num":0,"ai_result":None,
+            "live_view":"card","mon_view":"card",   # ★ 카드가 기본값
+            "kw_result":None,"img_prompt":None,
+            "card_ai_selected":set()}.items():
     if k not in st.session_state:
         st.session_state[k]=v
 
@@ -150,12 +154,14 @@ def apply_margin(df,fee,margin):
     return df
 
 def do_live_search():
-    st.session_state.update({"search_error":None,"page_num":0,"live_results":[],"ai_result":None,"show_results":False})
+    st.session_state.update({"search_error":None,"page_num":0,"live_results":[],
+                              "ai_result":None,"show_results":False,"card_ai_selected":set()})
     kw=st.session_state.get("search_kw","").strip()
     cat=CATEGORY_MAP[st.session_state["cat_main"]][st.session_state["cat_sub"]]
     sites=st.session_state.get("sourcing_sites",["도매매","도매꾹"])
     pg_size,max_pg=FETCH_PRESETS.get(st.session_state.get("fetch_preset","일반 검색  (100개)"),(50,2))
     results=[]; errors=[]
+
     if any(s in sites for s in ["도매매","도매꾹"]):
         if not DOME_KEY: errors.append("도매매/도매꾹 API 키 없음")
         elif client:
@@ -165,13 +171,17 @@ def do_live_search():
                 if "도매꾹" in sites:
                     results.extend(client.fetch_product_list(market="dome",keyword=kw,category_code=cat,page_size=pg_size,max_pages=max_pg))
             except Exception as e: errors.append(f"도매매/도매꾹: {e}")
+
     if "온채널" in sites and oc_client:
-        if not OC_ID or not OC_PW: errors.append("온채널 ID/PW 미설정")
+        if not OC_ID or not OC_PW:
+            errors.append("온채널 ID/PW 미설정")
         elif kw:
             try:
                 oc=oc_client.fetch_product_list(keyword=kw,page_size=pg_size*max_pg,max_pages=max_pg)
                 results.extend(oc)
-            except Exception as e: errors.append(f"온채널: {e}")
+            except Exception as e:
+                errors.append(str(e))
+
     if errors: st.session_state["search_error"]=" | ".join(errors)
     if not results and not errors: st.session_state["search_error"]="검색 결과 없음"
     elif results:
@@ -183,7 +193,7 @@ def do_live_search():
 
 def reset_all():
     st.session_state.update({"search_kw":"","live_results":[],"show_results":False,
-                              "search_error":None,"page_num":0,"ai_result":None})
+                              "search_error":None,"page_num":0,"ai_result":None,"card_ai_selected":set()})
     st.rerun()
 
 def do_track(prod, is_track):
@@ -191,10 +201,24 @@ def do_track(prod, is_track):
         detail=client.fetch_item_detail(str(prod["product_id"]))
         if detail:
             for k,v in detail.items():
-                if v: prod[k]=v
+                if v or v==0: prod[k]=v
     upsert_tracked_product(prod, is_track)
 
-def render_cards(df, tracked_ids, id_prefix, on_toggle):
+def get_product_url(row):
+    """도매매/도매꾹 상품 페이지 URL 생성"""
+    site=row.get("site","")
+    pid=str(row.get("product_id",""))
+    if site=="도매꾹":
+        return f"https://domeggook.com/main/item/itemView.php?no={pid}"
+    elif site=="도매매":
+        return f"https://domeggook.com/main/item/itemView.php?no={pid}&market=supply"
+    elif pid.startswith("OC_"):
+        return f"https://www.onch3.co.kr/goods_view.php?vnum={pid[3:]}"
+    return ""
+
+def render_cards(df, tracked_ids, id_prefix, on_toggle,
+                 show_ai_select=False, ai_selected_set=None):
+    """공통 카드 그리드 — 클릭 시 상품 페이지 링크, AI선택 체크박스 포함"""
     per_row=3
     for i in range(0,len(df),per_row):
         cols=st.columns(per_row)
@@ -205,26 +229,72 @@ def render_cards(df, tracked_ids, id_prefix, on_toggle):
                 profit=int(row.get("예상 순수익(원)",0))
                 sale=int(row.get("추천 판매가(원)",0))
                 mp=float(row.get("마진율(%)",0))
-                is_t=str(row["product_id"]) in tracked_ids
+                pid=str(row["product_id"])
+                is_t=pid in tracked_ids
+                prod_url=get_product_url(row)
+
+                # 이미지 (클릭 → 상품 링크)
                 if img and img.startswith("http"):
-                    try: st.image(img,width=220)
-                    except: st.markdown("📦")
+                    if prod_url:
+                        st.markdown(
+                            f'<a href="{prod_url}" target="_blank">'
+                            f'<img src="{img}" style="width:100%;border-radius:8px;'
+                            f'cursor:pointer;margin-bottom:6px" /></a>',
+                            unsafe_allow_html=True)
+                    else:
+                        try: st.image(img,width=220)
+                        except: st.markdown("📦")
                 else:
-                    st.markdown("<div style='height:90px;background:#f1f5f9;border-radius:8px;"
-                                "display:flex;align-items:center;justify-content:center;"
-                                "font-size:2.5rem;margin-bottom:6px'>📦</div>",unsafe_allow_html=True)
+                    if prod_url:
+                        st.markdown(
+                            f'<a href="{prod_url}" target="_blank" style="text-decoration:none">'
+                            f'<div style="height:90px;background:#f1f5f9;border-radius:8px;'
+                            f'display:flex;align-items:center;justify-content:center;'
+                            f'font-size:2.5rem;margin-bottom:6px;cursor:pointer">📦</div></a>',
+                            unsafe_allow_html=True)
+                    else:
+                        st.markdown("<div style='height:90px;background:#f1f5f9;border-radius:8px;"
+                                    "display:flex;align-items:center;justify-content:center;"
+                                    "font-size:2.5rem;margin-bottom:6px'>📦</div>",unsafe_allow_html=True)
+
                 gc={"S":"#f59e0b","A":"#3b82f6","B":"#22c55e","C":"#eab308",
                     "D":"#f97316","E":"#ef4444"}.get(
                     grade[0].upper() if grade and grade[0].isalpha() else "","#94a3b8")
+
+                name_link=(f'<a href="{prod_url}" target="_blank" style="color:#1e293b;'
+                           f'text-decoration:none">{row["name"][:30]}</a>'
+                           if prod_url else row["name"][:30])
+
                 st.markdown(f"""
-<div style="font-size:.82rem;font-weight:500;color:#1e293b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px" title="{row['name']}">{row['name'][:32]}</div>
-<div style="font-size:.7rem;color:#94a3b8;margin-bottom:3px">{row.get('site','')} | {row.get('product_id','')}</div>
-<div style="font-size:.75rem;color:#475569;margin-bottom:2px">공급가 <b>{int(row['supply_price']):,}원</b> 배송비 <b>{int(row['delivery_fee']):,}원</b></div>
-<div style="font-size:.9rem;font-weight:700;color:#2563eb;margin-bottom:2px">판매가 {sale:,}원 &nbsp; 순수익 {profit:,}원</div>
-<div style="font-size:.72rem;color:#64748b">마진 <b>{mp:.1f}%</b> &nbsp;|&nbsp; 등급 <span style="color:{gc};font-weight:600">{grade if grade else '확인중'}</span> &nbsp;|&nbsp; {row.get('상태','')}</div>
-""",unsafe_allow_html=True)
+<div style="font-size:.82rem;font-weight:500;white-space:nowrap;overflow:hidden;
+    text-overflow:ellipsis;margin-bottom:3px" title="{row['name']}">{name_link}</div>
+<div style="font-size:.7rem;color:#94a3b8;margin-bottom:3px">
+    {row.get('site','')} | {row.get('product_id','')}</div>
+<div style="font-size:.75rem;color:#475569;margin-bottom:2px">
+    공급가 <b>{int(row['supply_price']):,}원</b> 배송비 <b>{int(row['delivery_fee']):,}원</b></div>
+<div style="font-size:.9rem;font-weight:700;color:#2563eb;margin-bottom:2px">
+    판매가 {sale:,}원 &nbsp; 순수익 {profit:,}원</div>
+<div style="font-size:.72rem;color:#64748b">
+    마진 <b>{mp:.1f}%</b> &nbsp;|&nbsp;
+    등급 <span style="color:{gc};font-weight:600">{grade if grade else '조회 필요'}</span> &nbsp;|&nbsp;
+    {row.get('상태','')}</div>""",unsafe_allow_html=True)
+
+                # AI 선택 체크박스 (카드 보기에서도 가능)
+                if show_ai_select and ai_selected_set is not None:
+                    ai_checked = pid in ai_selected_set
+                    new_checked = st.checkbox("🤖 AI 분석 선택",
+                                              value=ai_checked,
+                                              key=f"ai_card_{id_prefix}_{pid}")
+                    if new_checked != ai_checked:
+                        if new_checked:
+                            ai_selected_set.add(pid)
+                        else:
+                            ai_selected_set.discard(pid)
+                        st.session_state["card_ai_selected"] = ai_selected_set
+
+                # 관심 등록 버튼
                 label="⭐ 등록됨" if is_t else "☆ 관심 등록"
-                if st.button(label,key=f"{id_prefix}_{row['product_id']}",use_container_width=True):
+                if st.button(label,key=f"{id_prefix}_card_{pid}",use_container_width=True):
                     on_toggle(row.to_dict(),0 if is_t else 1); st.rerun()
 
 def send_tg_long(text,prefix="📡 소싱레이더"):
@@ -265,14 +335,12 @@ def compact_ai(items_df,fee,margin,platform_name,margin_name):
         rows.append(f"{r['name'][:28]} ({r.get('site','')})\n"
                     f"  원가{supply+deliv:,}원 판매가{sale:,}원 순수익{profit:,}원/건 마진{mp:.1f}% 등급{grade}")
     prompt=f"""이커머스 소싱 전문가로서 마케팅과 판매 관점에서 핵심만 분석하세요.
-
 판매 설정: {platform_name} 수수료{int(fee*100)}% / 목표마진 {int(margin*100)}%
 
 분석 상품:
 {chr(10).join(rows)}
 
-아래 형식으로만 출력하세요. 줄 앞에 대시(-), 해시(#), 별표(*) 같은 특수문자 없이 작성하세요.
-이모티콘은 그대로 사용하세요.
+아래 형식으로만 출력하세요. 줄 앞에 대시(-), 해시(#), 별표(*) 없이 작성. 이모티콘 유지.
 
 🏆 즉시 소싱 추천 TOP3
 1 상품명 이유한줄
@@ -296,68 +364,117 @@ def compact_ai(items_df,fee,margin,platform_name,margin_name):
 각 섹션 5줄 이내, 수치 포함, 간결하게."""
     return gemini_call(prompt,1800)
 
-def generate_keywords(product_name,features,platforms):
-    """선택 플랫폼별 최적 키워드 생성"""
-    platform_str="\n".join([
-        f"{p}: 형식={PLATFORM_KEYWORD_GUIDE[p]['format']}, 최대길이={PLATFORM_KEYWORD_GUIDE[p]['max_len']}자, 키워드수={PLATFORM_KEYWORD_GUIDE[p]['max_keywords']}개"
+def generate_keywords(prod_name, features, platforms):
+    guide_str="\n".join([
+        f"[{p}] 형식={PLATFORM_KW_GUIDE[p]['format']}, 최대{PLATFORM_KW_GUIDE[p]['max_len']}자, 키워드{PLATFORM_KW_GUIDE[p]['max_kw']}개"
         for p in platforms
     ])
-    prompt=f"""이커머스 SEO 전문가로서 아래 상품의 플랫폼별 최적 키워드를 생성하세요.
+    prompt=f"""이커머스 SEO 전문가. 아래 상품의 플랫폼별 최적 키워드를 생성하세요.
 
-상품명: {product_name}
+상품명: {prod_name}
 주요 특징: {features}
 
-플랫폼별 요구사항:
-{platform_str}
+{guide_str}
 
-각 플랫폼별로 아래 형식으로 출력하세요. 줄 앞 특수문자(-,#,*) 없이, 이모티콘 유지.
+각 플랫폼별 출력 형식 (## 없이, 이모티콘 유지):
 
 [플랫폼명]
-추천 상품명: (해당 플랫폼 형식에 맞는 최적 상품명)
-핵심 키워드: 키워드1, 키워드2, 키워드3 ... (쉼표 구분)
-롱테일 키워드: 키워드1, 키워드2, 키워드3 (세부 검색어)
-태그/해시태그: 태그1, 태그2, 태그3
-등록 팁: 한 줄 팁
+추천 상품명: (최적 상품명)
+핵심 키워드: 키워드1, 키워드2, 키워드3, 키워드4, 키워드5
+롱테일 키워드: 키워드1, 키워드2, 키워드3
+태그: 태그1, 태그2, 태그3, 태그4, 태그5
+등록 팁: 한줄
 
-각 플랫폼 간 구분선(---) 추가"""
+플랫폼 간 구분: ---"""
     return gemini_call(prompt,2000)
 
-def generate_image_prompts(brand,product_url,features,tone,target):
-    """스마트스토어 상세페이지 이미지 프롬프트 생성"""
-    prompt=f"""당신은 네이버 스마트스토어 상세페이지를 제작하는 시니어 광고 디자이너이자 퍼포먼스 마케터입니다.
+def fetch_url_content(url: str) -> str:
+    """URL 내용 실제 fetch"""
+    if not url or not url.startswith("http"):
+        return ""
+    try:
+        from bs4 import BeautifulSoup
+        resp=req.get(url, headers={"User-Agent":"Mozilla/5.0"}, timeout=10)
+        if resp.status_code==200:
+            resp.encoding=resp.apparent_encoding
+            soup=BeautifulSoup(resp.text,"html.parser")
+            # 스크립트/스타일 제거
+            for tag in soup(["script","style","nav","footer","header"]):
+                tag.decompose()
+            text=soup.get_text(separator="\n",strip=True)
+            # 최대 2000자
+            return text[:2000]
+    except Exception as e:
+        print(f"[URL fetch 오류] {e}")
+    return ""
+
+def generate_image_prompts(brand, product_url, features, target):
+    """PDF 가이드북 v2.0 기준 — 12개 이미지 프롬프트 생성"""
+    # URL 실제 fetch
+    url_content=""
+    if product_url and product_url.startswith("http"):
+        url_content=fetch_url_content(product_url)
+        if url_content:
+            url_content=f"\n참고 URL 내용:\n{url_content}"
+
+    # 가이드북 이미지 구조 요약
+    guide_summary="\n".join([
+        f"이미지{g['no']} [{g['section']}] 목적:{g['purpose']} 높이:{g['height']}"
+        for g in IMAGE_GUIDE
+    ])
+
+    prompt=f"""당신은 네이버 스마트스토어 상세페이지 전문 디자이너이자 퍼포먼스 마케터입니다.
+아래 가이드북 규칙에 따라 12개 이미지 프롬프트를 설계하세요.
 
 브랜드명: {brand}
-상품 URL 또는 설명: {product_url}
-주요 특징:
-{features}
 타겟 고객: {target}
-톤앤매너: {tone}
+주요 특징: {features}{url_content}
 
-아래 10~12개 이미지에 대한 image 2 생성 프롬프트를 설계하세요.
-각 이미지는 반드시 하나의 설득 완결 구조여야 합니다.
+가이드북 이미지 구성:
+{guide_summary}
 
-출력 형식 (줄 앞 특수문자 없이, 이모티콘 유지):
+공통 디자인 규칙:
+가로 860px 고정 / 배경: White or Light Gray / 스타일: Photorealistic, Commercial Photography, Natural Lighting, Clean Ecommerce Design / 폰트: 헤드라인 S-Core Dream Bold, 본문 Pretendard Regular
+
+AI 자동 분석 항목 (먼저 분석 후 각 이미지에 반영):
+타겟고객 / 고객문제 / 구매이유5가지 / 경쟁차별점 / 신뢰요소 / 구매트리거
+
+출력 형식 (이모티콘 유지, 줄 앞 특수문자 없이):
+
+[이미지 1: HOOK]
+목적: 3초 안에 시선 확보
+이미지 높이: 2200px
+메인 카피: (고객이 얻는 가장 큰 결과 또는 호기심 유발 문장)
+서브 카피: (설명 1~2문장)
+보조 포인트: 포인트1 / 포인트2 / 포인트3
+신뢰 요소: (1개)
+image 2 프롬프트: Photorealistic, commercial photography, hero shot of {brand}, ...860px width, 2200px height
 
 [이미지 N: 섹션명]
-목적: 한 줄
-이미지 높이: Npx
-메인 카피: 텍스트
-서브 카피: 텍스트
-보조 포인트: 포인트1 / 포인트2 / 포인트3
-image 2 프롬프트: Photorealistic, commercial photography... (영문, 상세하게)
+...
 
-섹션 구성:
-이미지1 Hook (모델 등장, 1800~2400px)
-이미지2 문제 공감 (1500~2000px)
-이미지3 해결 제안 Before/After (1700~2200px)
-이미지4~8 핵심 가치 5장 (각 1600~2200px)
-이미지9 신뢰 요소 (2000~3000px)
-이미지10 상세 정보 표 (2200~3000px)
-이미지11 구매 전 체크 (1500~1800px)
-이미지12 CTA (1500~2000px)
+위 형식으로 이미지 1~12 모두 작성하세요. 한 이미지 = 하나의 설득 완결."""
 
-공통 규칙: photorealistic, commercial photography, natural lighting, minimal background, clean ecommerce design, 860px 가로 고정"""
-    return gemini_call(prompt,3000)
+    return gemini_call(prompt,4000)
+
+def build_download_text(brand, prompts_text):
+    """다운로드용 텍스트 구성"""
+    return f"""소싱레이더 — AI 상세페이지 이미지 프롬프트
+브랜드: {brand}
+생성일: {datetime.now().strftime('%Y.%m.%d %H:%M')}
+가이드: 범용 스마트스토어 상세페이지 Image 2 생성 프롬프트 제작 가이드북 v2.0
+
+{'='*60}
+
+{prompts_text}
+
+{'='*60}
+사용 방법:
+1. 각 [이미지 N]의 'image 2 프롬프트' 부분을 복사
+2. ChatGPT (GPT-4o with DALL-E) 또는 Adobe Firefly에 붙여넣기
+3. 생성된 이미지를 860px 기준으로 다운로드
+4. 스마트스토어 상세페이지에 순서대로 등록
+"""
 
 # ── 사이드바 ─────────────────────────────────────────────────
 with st.sidebar:
@@ -368,7 +485,10 @@ with st.sidebar:
     if OC_AVAILABLE: site_opts.append("온채널")
     sourcing_sites=st.multiselect("소싱 업체",options=site_opts,default=["도매매","도매꾹"],key="sourcing_sites")
     if OC_AVAILABLE:
-        st.caption(f"온채널: {'연동됨' if (OC_ID and OC_PW) else 'ID/PW 미설정'}")
+        if OC_ID and OC_PW:
+            st.caption("온채널: ID/PW 등록됨 (클라우드 서버 차단으로 검색 불가)")
+        else:
+            st.caption("온채널: ID/PW 미설정")
     fetch_preset=st.selectbox("검색 수량",list(FETCH_PRESETS.keys()),index=1,key="fetch_preset")
     st.markdown("#### 판매 전략")
     platform_name=st.selectbox("판매 플랫폼",list(PLATFORM_FEE.keys()))
@@ -376,41 +496,36 @@ with st.sidebar:
     fee=PLATFORM_FEE[platform_name]; margin=MARGIN_MAP[margin_name]
     st.markdown(f"""<div style="background:#0f3460;border-radius:10px;padding:.8rem 1rem;margin-top:.5rem">
         <div style="color:#94a3b8;font-size:.72rem;font-weight:600">현재 설정</div>
-        <div style="color:white;font-size:1rem;font-weight:700;margin-top:.2rem">
-            수수료 {int(fee*100)}% / 목표마진 {int(margin*100)}%</div>
+        <div style="color:white;font-size:1rem;font-weight:700;margin-top:.2rem">수수료 {int(fee*100)}% / 목표마진 {int(margin*100)}%</div>
         <div style="color:#64748b;font-size:.72rem;margin-top:.2rem">배수 ÷{round(1-fee-margin,2)}</div>
     </div>""",unsafe_allow_html=True)
     st.markdown("---")
     t_df=load_tracked_db()
     total_t=len(t_df)
-    if not t_df.empty:
-        t_calc=apply_margin(t_df,fee,margin)
-        avg_profit_t=int(t_calc["예상 순수익(원)"].mean())
-    else:
-        avg_profit_t=0
-    st.markdown("#### 관심 상품 현황")
-    c1,c2=st.columns(2); c1.metric("등록 상품",total_t); c2.metric("평균 순수익",f"{avg_profit_t:,}원")
+    avg_p_t=int(apply_margin(t_df,fee,margin)["예상 순수익(원)"].mean()) if not t_df.empty else 0
+    st.markdown("#### 관심 상품")
+    c1,c2=st.columns(2); c1.metric("등록 상품",total_t); c2.metric("평균 순수익",f"{avg_p_t:,}원")
     st.markdown("---")
     st.markdown("#### 텔레그램")
     try: tg_ok=st.secrets.get("TELEGRAM_BOT_TOKEN","") not in ["","봇토큰_입력"]
     except: tg_ok=False
     st.markdown(f"상태: {'연동됨' if tg_ok else '미설정'}")
     if st.button("테스트 발송",use_container_width=True):
-        ok=send_telegram_message(f"소싱레이더 연동 테스트\n관심상품 {total_t}개 / 평균순수익 {avg_profit_t:,}원")
+        ok=send_telegram_message(f"소싱레이더 연동 테스트\n관심상품 {total_t}개")
         st.success("완료") if ok else st.error("실패")
     st.markdown("---")
     st.markdown(f"#### AI (Gemini 무료)\n{'사용 가능' if GEMINI_KEY else 'GEMINI_API_KEY 미설정'}")
     st.markdown("---")
-    st.caption("소싱레이더 v6.0")
+    st.caption("소싱레이더 v6.1")
 
 # ── 헤더 ────────────────────────────────────────────────────
 st.markdown("""<div class="main-header">
     <h1>📡 소싱레이더</h1>
-    <p>도매매 도매꾹 온채널 실시간 통합 마진 분석 시스템</p>
+    <p>도매매 도매꾹 실시간 통합 마진 분석 시스템</p>
 </div>""",unsafe_allow_html=True)
 
 tab1,tab2,tab3,tab4,tab5,tab6=st.tabs([
-    "🔍 라이브 검색","⭐ 관심 상품","🔑 키워드 검색","🎨 AI 이미지 생성","📱 텔레그램 설정","📖 가이드"])
+    "🔍 라이브 검색","⭐ 관심 상품","🔑 키워드 생성","🎨 AI 이미지 생성","📱 텔레그램","📖 가이드"])
 
 # ══════════════════════════════════════════════════════════════
 # TAB 1: 라이브 검색
@@ -424,7 +539,7 @@ with tab1:
     with b1: st.button("검색",on_click=do_live_search,use_container_width=True,type="primary")
     with b2: st.button("초기화",on_click=reset_all,use_container_width=True)
     with b3:
-        v_sel=st.selectbox("보기",["표 보기","카드 보기"],key="live_view_sel",label_visibility="collapsed")
+        v_sel=st.selectbox("보기",["🖼 카드 보기","📋 표 보기"],key="live_view_sel",label_visibility="collapsed")
         st.session_state["live_view"]="card" if "카드" in v_sel else "table"
 
     if st.session_state.get("search_error"):
@@ -434,7 +549,8 @@ with tab1:
         st.markdown("""<div style="text-align:center;padding:3rem 0;color:#94a3b8">
             <div style="font-size:3rem">📦</div>
             <div style="font-size:1rem;margin-top:.5rem">키워드를 입력하고 검색하세요</div>
-            <div style="font-size:.8rem;margin-top:.3rem">업체등급은 검색 후 등급 조회 버튼으로 확인 가능합니다</div>
+            <div style="font-size:.8rem;margin-top:.3rem">
+                업체등급: 🏅 등급 조회 버튼 클릭 또는 ⭐ 관심 등록 시 자동 갱신</div>
         </div>""",unsafe_allow_html=True)
     else:
         raw_df=pd.DataFrame(st.session_state["live_results"])
@@ -444,17 +560,18 @@ with tab1:
             for col,default in [("seller_grade",""),("image_url","")]:
                 if col not in raw_df.columns: raw_df[col]=default
 
-            # ★ 업체등급 조회 버튼 (도매매 사이트처럼 판매자등급 표시)
+            # 업체등급 조회 버튼
             grade_missing=int((raw_df["seller_grade"]=="").sum()+(raw_df["seller_grade"].isna()).sum())
             if grade_missing>0 and client:
-                col_gb,_=st.columns([2,3])
+                col_gb,_=st.columns([2.5,3])
                 with col_gb:
-                    if st.button(f"🏅 업체등급 조회 (상위 15개, 약 5~10초)",
+                    if st.button(f"🏅 업체등급 조회 (상위 15개 상세 조회, 약 5~10초)",
                                  use_container_width=True,type="secondary"):
                         with st.spinner("업체등급 조회 중... (도매매/도매꾹 상세 API 호출)"):
                             updated=client.batch_fetch_grades(raw_df.to_dict("records"),limit=15)
-                            raw_df=pd.DataFrame(updated)
-                            st.session_state["live_results"]=raw_df.to_dict("records")
+                            updated_df=pd.DataFrame(updated)
+                            st.session_state["live_results"]=updated_df.to_dict("records")
+                        st.success(f"등급 조회 완료! Streamlit 로그에서 [상세 seller원문]을 확인하면 실제 API 필드명을 알 수 있습니다.")
                         st.rerun()
 
             site_counts=raw_df["site"].value_counts().to_dict()
@@ -494,7 +611,7 @@ with tab1:
             page_df["⭐ 관심"]=page_df["product_id"].astype(str).isin(tracked_ids)
 
             if st.session_state["live_view"]=="card":
-                render_cards(page_df,tracked_ids,"live",lambda p,t:do_track(p,t))
+                render_cards(page_df,tracked_ids,"live1",lambda p,t:do_track(p,t))
             else:
                 show_cols=["⭐ 관심","site","product_id","name","supply_price","delivery_fee",
                            "상태","추천 판매가(원)","예상 순수익(원)","마진율(%)","seller_grade"]
@@ -513,7 +630,7 @@ with tab1:
                         "추천 판매가(원)":st.column_config.NumberColumn(format="%d원"),
                         "예상 순수익(원)":st.column_config.NumberColumn(format="%d원"),
                         "마진율(%)":st.column_config.NumberColumn(format="%.1f%%"),
-                        "업체등급":st.column_config.TextColumn("업체등급",help="S>A>B>C>D>E | 🏅등급 조회 버튼으로 확인"),
+                        "업체등급":st.column_config.TextColumn("업체등급",help="🏅 등급 조회 버튼 또는 관심 등록 시 갱신"),
                     })
                 any_changed=False
                 for i in range(len(edited)):
@@ -547,13 +664,13 @@ with tab2:
         total_m=len(tracked_df)
         t_calc=apply_margin(tracked_df,fee,margin)
         ok_m=len(tracked_df[tracked_df["status"]=="Y"])
-        avg_m=round(t_calc["마진율(%)"].mean(),1) if not t_calc.empty else 0
+        avg_m=round(t_calc["마진율(%)"].mean(),1)
         avg_prof=int(t_calc[t_calc["status"]=="Y"]["예상 순수익(원)"].mean()) if ok_m>0 else 0
         monthly=avg_prof*100
 
         k1,k2,k3,k4=st.columns(4)
-        k1.markdown(f'<div class="kpi-card"><div class="kpi-label">관심 상품</div><div class="kpi-value">{total_m}</div><div class="kpi-sub">개 등록</div></div>',unsafe_allow_html=True)
-        k2.markdown(f'<div class="kpi-card"><div class="kpi-label">정상 판매 가능</div><div class="kpi-value" style="color:#16a34a">{ok_m}</div><div class="kpi-sub">개</div></div>',unsafe_allow_html=True)
+        k1.markdown(f'<div class="kpi-card"><div class="kpi-label">관심 상품</div><div class="kpi-value">{total_m}</div><div class="kpi-sub">개</div></div>',unsafe_allow_html=True)
+        k2.markdown(f'<div class="kpi-card"><div class="kpi-label">정상 판매</div><div class="kpi-value" style="color:#16a34a">{ok_m}</div><div class="kpi-sub">개</div></div>',unsafe_allow_html=True)
         k3.markdown(f'<div class="kpi-card"><div class="kpi-label">평균 마진율</div><div class="kpi-value" style="color:#7c3aed">{avg_m:.1f}%</div><div class="kpi-sub">목표마진 기준</div></div>',unsafe_allow_html=True)
         k4.markdown(f'<div class="kpi-card"><div class="kpi-label">월 예상수익 (100건)</div><div class="kpi-value" style="color:#2563eb">{monthly:,}</div><div class="kpi-sub">원</div></div>',unsafe_allow_html=True)
         st.markdown("<br>",unsafe_allow_html=True)
@@ -562,7 +679,7 @@ with tab2:
         with mv1: m_filter=st.text_input("상품명 검색","",placeholder="검색...",label_visibility="collapsed")
         with mv2: m_status=st.selectbox("상태",["전체","정상만","품절만"],label_visibility="collapsed")
         with mv3:
-            mv_sel=st.selectbox("보기",["표 보기","카드 보기"],key="mon_view_sel",label_visibility="collapsed")
+            mv_sel=st.selectbox("보기",["🖼 카드 보기","📋 표 보기"],key="mon_view_sel",label_visibility="collapsed")
             st.session_state["mon_view"]="card" if "카드" in mv_sel else "table"
 
         mdf=t_calc.copy()
@@ -576,9 +693,13 @@ with tab2:
 
         tracked_ids_m=mdf["product_id"].astype(str).tolist()
         edited_m=None
+        card_ai=st.session_state.get("card_ai_selected",set())
 
         if st.session_state["mon_view"]=="card":
-            render_cards(mdf,tracked_ids_m,"mon",lambda p,t:(upsert_tracked_product(p,t),st.rerun()))
+            # ★ 카드 보기에서도 AI 선택 가능
+            render_cards(mdf,tracked_ids_m,"mon",
+                         lambda p,t:(upsert_tracked_product(p,t),st.rerun()),
+                         show_ai_select=True,ai_selected_set=card_ai)
         else:
             mdf["AI선택"]=False; mdf["해제"]=True
             if "updated_at" in mdf.columns:
@@ -601,8 +722,8 @@ with tab2:
                     "추천 판매가(원)":st.column_config.NumberColumn(format="%d원"),
                     "예상 순수익(원)":st.column_config.NumberColumn(format="%d원"),
                     "마진율(%)":st.column_config.NumberColumn(format="%.1f%%"),
-                    "업체등급":st.column_config.TextColumn("업체등급",help="S>A>B>C>D>E"),
-                    "등록일":st.column_config.TextColumn("등록일",help="DB 저장 기준"),
+                    "업체등급":st.column_config.TextColumn("업체등급"),
+                    "등록일":st.column_config.TextColumn("등록일"),
                 },
                 disabled=[c for c in mdf_disp.columns if c not in ["AI선택","해제"]],
             )
@@ -621,37 +742,44 @@ with tab2:
             ok_sent=send_tg_long("\n".join(lines),"관심 상품 현황")
             st.success("전송 완료") if ok_sent else st.error("전송 실패")
 
+        # ── AI 소싱 분석 ──────────────────────────────────────
         st.markdown("---")
         st.markdown("#### 🤖 AI 소싱 분석")
         if not GEMINI_KEY:
             st.info("aistudio.google.com 에서 무료 키 발급 후 Secrets에 GEMINI_API_KEY 등록")
         else:
+            # 선택 항목 수집 (카드/표 모두)
             sel_count=0; sel_df=pd.DataFrame()
-            if edited_m is not None and "AI선택" in edited_m.columns:
+            if st.session_state["mon_view"]=="card":
+                # 카드뷰 AI 선택
+                sel_pids=st.session_state.get("card_ai_selected",set())
+                sel_count=len(sel_pids)
+                if sel_count>0:
+                    sel_df=t_calc[t_calc["product_id"].astype(str).isin(sel_pids)].copy()
+                st.info(f"카드에서 🤖 AI 분석 선택: {sel_count}개")
+            elif edited_m is not None and "AI선택" in edited_m.columns:
                 sel_rows=edited_m[edited_m["AI선택"]==True]; sel_count=len(sel_rows)
                 if sel_count>0:
                     sel_names=sel_rows["상품명"].tolist()
                     sel_df=t_calc[t_calc["name"].isin(sel_names)].copy()
-            if sel_count>0: st.success(f"{sel_count}개 선택됨")
-            elif st.session_state["mon_view"]=="table": st.info("표에서 AI선택 체크 후 분석하거나 전체 분석 버튼 사용")
+
             btn1,btn2=st.columns([2,1])
             with btn1: ai_sel_btn=st.button("✨ 선택 상품 AI 분석",type="primary",use_container_width=True,disabled=(sel_count==0))
             with btn2: ai_all_btn=st.button("📊 전체 AI 분석",use_container_width=True)
+
             if ai_all_btn:
-                with st.spinner(f"전체 {total_m}개 분석 중..."):
-                    result=compact_ai(t_calc,fee,margin,platform_name,margin_name)
+                with st.spinner(f"전체 {total_m}개 분석 중..."): result=compact_ai(t_calc,fee,margin,platform_name,margin_name)
                 st.session_state["ai_result"]=result
             if ai_sel_btn and sel_count>0:
                 target=apply_margin(sel_df,fee,margin)
-                with st.spinner(f"{sel_count}개 분석 중..."):
-                    result=compact_ai(target,fee,margin,platform_name,margin_name)
+                with st.spinner(f"{sel_count}개 분석 중..."): result=compact_ai(target,fee,margin,platform_name,margin_name)
                 st.session_state["ai_result"]=result
+
             if st.session_state.get("ai_result"):
                 st.markdown("---")
                 st.markdown("**📊 AI 소싱 분석 결과**")
                 result_text=st.session_state["ai_result"]
                 st.markdown(result_text)
-                st.markdown("<br>",unsafe_allow_html=True)
                 tg2,clr=st.columns([2,1])
                 with tg2:
                     if st.button("📱 분석 결과 텔레그램 전송",use_container_width=True,key="ai_tg"):
@@ -662,73 +790,59 @@ with tab2:
                         st.session_state["ai_result"]=None; st.rerun()
 
 # ══════════════════════════════════════════════════════════════
-# TAB 3: 키워드 검색
+# TAB 3: 키워드 생성
 # ══════════════════════════════════════════════════════════════
 with tab3:
     st.markdown("### 🔑 플랫폼별 키워드 생성")
-    st.markdown("검색한 상품을 각 플랫폼에 최적화된 키워드와 상품명으로 변환합니다.")
-
-    with st.container():
-        st.markdown('<div class="ai-section">', unsafe_allow_html=True)
-        kw_prod=st.text_input("상품명 입력", placeholder="예: 오트밀크 오리지널 190ml 24팩",
-                              key="kw_product_input")
-        kw_feat=st.text_area("주요 특징 / 스펙 입력",
-                             placeholder="예: 비건, 무첨가, 오트밀 함량 11%, 무항생제 인증, 가정/카페용",
-                             height=100, key="kw_features_input")
-        kw_platforms=st.multiselect("등록할 플랫폼 선택",
-                                    options=list(PLATFORM_KEYWORD_GUIDE.keys()),
-                                    default=["네이버 스마트스토어","쿠팡"],
-                                    key="kw_platforms")
-
-        # 최근 검색 결과에서 상품 가져오기
-        if st.session_state.get("live_results"):
-            live_names=[r["name"] for r in st.session_state["live_results"][:20]]
-            sel_from_live=st.selectbox("또는 검색 결과에서 선택",["직접 입력"]+live_names,
-                                       key="kw_from_live")
-            if sel_from_live!="직접 입력" and not kw_prod:
-                st.session_state["kw_product_input"]=sel_from_live
-
-        if st.button("🔑 키워드 생성",type="primary",use_container_width=True,
-                     disabled=(not GEMINI_KEY or not kw_prod or not kw_platforms)):
-            if not GEMINI_KEY:
-                st.error("GEMINI_API_KEY 가 필요합니다.")
-            else:
-                with st.spinner("플랫폼별 최적 키워드 생성 중..."):
-                    result=generate_keywords(kw_prod,kw_feat,kw_platforms)
-                st.session_state["kw_result"]=result
-        st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('<div class="ai-section">',unsafe_allow_html=True)
+    kw_prod=st.text_input("상품명",placeholder="예: 오트밀크 190ml 24팩",key="kw_product_input")
+    kw_feat=st.text_area("주요 특징",placeholder="예: 비건, 무첨가, 오트밀 함량 11%",height=80,key="kw_features_input")
+    kw_platforms=st.multiselect("등록할 플랫폼",options=list(PLATFORM_KW_GUIDE.keys()),
+                                default=["네이버 스마트스토어","쿠팡"],key="kw_platforms")
+    if st.session_state.get("live_results"):
+        live_names=[r["name"] for r in st.session_state["live_results"][:20]]
+        sel_from_live=st.selectbox("또는 검색 결과에서 선택",["직접 입력"]+live_names,key="kw_from_live")
+    if st.button("🔑 키워드 생성",type="primary",use_container_width=True,
+                 disabled=(not GEMINI_KEY or not kw_prod or not kw_platforms)):
+        with st.spinner("플랫폼별 키워드 생성 중..."):
+            result=generate_keywords(kw_prod,kw_feat,kw_platforms)
+        st.session_state["kw_result"]=result
+    st.markdown('</div>',unsafe_allow_html=True)
 
     if st.session_state.get("kw_result"):
         st.markdown("---")
-        st.markdown("**🔑 플랫폼별 키워드 생성 결과**")
-
+        st.markdown("**🔑 플랫폼별 키워드 결과**")
         result_text=st.session_state["kw_result"]
-        # 플랫폼별 섹션 파싱해서 카드로 표시
-        sections=result_text.split("---")
+        # 플랫폼 섹션 파싱
+        sections=[s.strip() for s in result_text.split("---") if s.strip()]
         for section in sections:
-            section=section.strip()
-            if not section: continue
             lines=[l.strip() for l in section.split("\n") if l.strip()]
             if not lines: continue
-
-            platform_header=lines[0].strip("[]").strip()
-            st.markdown(f'<div class="keyword-card"><div class="keyword-platform">📍 {platform_header}</div>',
-                        unsafe_allow_html=True)
-            for line in lines[1:]:
-                if "핵심 키워드:" in line or "태그" in line:
-                    keywords=[k.strip() for k in line.split(":",1)[1].split(",") if k.strip()]
-                    chips=" ".join([f'<span class="keyword-chip">{k}</span>' for k in keywords[:10]])
-                    label=line.split(":")[0]
-                    st.markdown(f'<div style="margin:.3rem 0"><b>{label}:</b><br>{chips}</div>',
-                                unsafe_allow_html=True)
-                else:
-                    st.markdown(f'<div style="font-size:.85rem;color:#475569;margin:.2rem 0">{line}</div>',
-                                unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)
-
+            # ★ ## 제거
+            header=lines[0].replace("##","").strip().strip("[]").strip()
+            with st.expander(f"📍 {header}", expanded=True):
+                for line in lines[1:]:
+                    if not line: continue
+                    if ":" in line:
+                        label,content=line.split(":",1)
+                        label=label.strip(); content=content.strip()
+                        keywords=[k.strip() for k in content.split(",") if k.strip()]
+                        if keywords and ("키워드" in label or "태그" in label or "해시태그" in label):
+                            # 키워드 칩 + Copy 버튼
+                            chips=" ".join([f'<span class="kw-chip">{k}</span>' for k in keywords])
+                            copy_text=", ".join(keywords)
+                            col_chips,col_copy=st.columns([4,1])
+                            with col_chips:
+                                st.markdown(f'<div><b>{label}:</b><br>{chips}</div>',unsafe_allow_html=True)
+                            with col_copy:
+                                st.code(copy_text,language=None)
+                        else:
+                            st.markdown(f"**{label}:** {content}")
+                    else:
+                        st.markdown(line)
         tg_kw,clr_kw=st.columns([2,1])
         with tg_kw:
-            if st.button("📱 키워드 결과 텔레그램 전송",use_container_width=True,key="kw_tg"):
+            if st.button("📱 키워드 텔레그램 전송",use_container_width=True,key="kw_tg"):
                 ok_sent=send_tg_long(result_text,"🔑 키워드 생성 결과")
                 st.success("전송 완료") if ok_sent else st.error("전송 실패")
         with clr_kw:
@@ -740,90 +854,90 @@ with tab3:
 # ══════════════════════════════════════════════════════════════
 with tab4:
     st.markdown("### 🎨 AI 상세페이지 이미지 프롬프트 생성")
-    st.markdown("상품 정보를 입력하면 스마트스토어 최적화 상세페이지 이미지 생성 프롬프트를 자동 설계합니다.")
+    st.markdown("범용 스마트스토어 상세페이지 Image 2 생성 프롬프트 제작 가이드북 v2.0 기준으로 12개 이미지를 설계합니다.")
 
-    with st.container():
-        st.markdown('<div class="ai-section">', unsafe_allow_html=True)
+    with st.expander("📋 이미지 구성 미리보기 (가이드북 v2.0 기준)", expanded=False):
+        for g in IMAGE_GUIDE:
+            st.markdown(f"**이미지 {g['no']} [{g['section']}]** — {g['purpose']} | 높이: {g['height']}")
 
-        img_col1,img_col2=st.columns(2)
-        with img_col1:
-            img_brand=st.text_input("브랜드명", placeholder="예: 인터뷰어 토마토즙",
-                                    key="img_brand")
-            img_target=st.text_input("타겟 고객",
-                                     placeholder="예: 20~40대 건강관리에 관심 있는 직장인",
-                                     key="img_target")
-            img_tone=st.selectbox("톤앤매너",
-                                  ["트렌디","친근함","프리미엄","간결함","감성적"],
-                                  key="img_tone")
-        with img_col2:
-            img_url=st.text_input("참고 상품 URL (선택)",
-                                  placeholder="상품 URL 입력 시 AI가 참고하여 더 정확하게 생성",
-                                  key="img_url")
-            img_category=st.selectbox("상품 카테고리",
-                                      ["식품/음료","뷰티/화장품","패션/의류","생활용품",
-                                       "디지털/가전","스포츠/레저","반려동물","기타"],
-                                      key="img_category")
+    st.markdown('<div class="ai-section">',unsafe_allow_html=True)
+    img_col1,img_col2=st.columns(2)
+    with img_col1:
+        img_brand=st.text_input("브랜드명",placeholder="예: 인터뷰어 토마토즙",key="img_brand")
+        img_target=st.text_input("타겟 고객",placeholder="예: 20~40대 건강관리에 관심있는 직장인",key="img_target")
+        img_category=st.selectbox("상품 카테고리",
+                                  ["식품/음료","뷰티/화장품","패션/의류","생활용품",
+                                   "디지털/가전","스포츠/레저","반려동물","기타"],key="img_category")
+    with img_col2:
+        img_url=st.text_input("참고 상품 URL (선택 — 실제 페이지 내용 참조)",
+                              placeholder="https://... 입력 시 AI가 실제 페이지 내용 분석",key="img_url")
+        st.caption("톤앤매너는 AI가 타겟/카테고리 기반으로 자동 결정합니다.")
 
-        img_features=st.text_area("상품 주요 특징 (상세히 입력할수록 좋습니다)",
-            placeholder="""예:
-1. 국산 토마토 100% 사용: 엄선된 국내산 토마토만을 원료로 사용
-2. NFC 착즙 방식: 원물 그대로를 착즙하여 영양소 파괴 최소화
-3. 갈아만든 텍스처: 과육의 식감과 진한 농도
-4. 무첨가 원칙: 설탕, 보존료, 향료 등 인공 첨가물 배제
-5. 스파우트 파우치 포장: 편의성, 휴대성, 보전성 UP""",
-            height=160, key="img_features")
+    img_features=st.text_area("상품 주요 특징 (상세히 입력할수록 좋습니다)",
+        placeholder="1. 국산 토마토 100% 사용\n2. NFC 착즙 방식\n3. 무첨가 원칙 ...",
+        height=150,key="img_features")
 
-        if st.button("🎨 상세페이지 이미지 프롬프트 생성",type="primary",
-                     use_container_width=True,
-                     disabled=(not GEMINI_KEY or not img_brand or not img_features)):
-            if not GEMINI_KEY:
-                st.error("GEMINI_API_KEY 가 필요합니다.")
-            else:
-                url_or_desc=f"URL: {img_url}" if img_url else f"카테고리: {img_category}"
-                with st.spinner("이미지 프롬프트 설계 중... (10~30초)"):
-                    result=generate_image_prompts(img_brand,url_or_desc,img_features,img_tone,img_target)
-                st.session_state["img_prompt"]=result
-        st.markdown('</div>', unsafe_allow_html=True)
+    if st.button("🎨 12개 이미지 프롬프트 생성",type="primary",use_container_width=True,
+                 disabled=(not GEMINI_KEY or not img_brand or not img_features)):
+        if not GEMINI_KEY: st.error("GEMINI_API_KEY 필요")
+        else:
+            with st.spinner("가이드북 v2.0 기준으로 12개 이미지 프롬프트 설계 중... (20~40초)"):
+                result=generate_image_prompts(img_brand,img_url,img_features,img_target)
+            st.session_state["img_prompt"]=result
+    st.markdown('</div>',unsafe_allow_html=True)
 
     if st.session_state.get("img_prompt"):
         st.markdown("---")
-        st.markdown("**🎨 상세페이지 이미지 프롬프트 (10~12개)**")
-        st.caption("아래 프롬프트를 ChatGPT Image 2 또는 Midjourney에 입력하면 상세페이지 이미지가 생성됩니다.")
-
+        st.markdown("**🎨 12개 이미지 프롬프트 — ChatGPT Image 2에 그대로 붙여넣기 가능**")
         prompt_text=st.session_state["img_prompt"]
 
-        # 이미지 섹션별 파싱
-        image_sections=[s.strip() for s in prompt_text.split("[이미지") if s.strip()]
-        if len(image_sections)>1:
-            for section in image_sections:
-                lines=[l.strip() for l in section.split("\n") if l.strip()]
-                if not lines: continue
-                header=lines[0].split("]")[0] if "]" in lines[0] else lines[0]
-                with st.expander(f"🖼 이미지 {header}", expanded=False):
-                    for line in lines[1:]:
-                        if "image 2 프롬프트:" in line.lower() or "image2" in line.lower():
-                            prompt_part=line.split(":",1)[1].strip() if ":" in line else line
-                            st.code(prompt_part, language=None)
-                        else:
-                            st.markdown(f"**{line.split(':')[0]}:** {':'.join(line.split(':')[1:]).strip()}" if ":" in line else line)
+        # 이미지별 expander
+        import re as _re
+        image_blocks=_re.split(r"\[이미지\s*(\d+)", prompt_text)
+        if len(image_blocks)>1:
+            i=1
+            while i<len(image_blocks):
+                num=image_blocks[i]
+                content=image_blocks[i+1] if i+1<len(image_blocks) else ""
+                section_line=content.split("\n")[0].strip().strip(":").strip("]").strip()
+                with st.expander(f"🖼 이미지 {num}: {section_line}", expanded=False):
+                    st.markdown(content)
+                    # image 2 프롬프트만 추출해서 코드블록
+                    eng_match=_re.search(r"image 2 프롬프트:\s*(Photorealistic[^\n]+(?:\n[^\[\n][^\n]+)*)",content,_re.I)
+                    if eng_match:
+                        eng_prompt=eng_match.group(1).strip()
+                        st.markdown("**복사용 프롬프트:**")
+                        st.code(eng_prompt,language=None)
+                i+=2
         else:
             st.markdown(prompt_text)
 
-        tg_img,copy_img,clr_img=st.columns([1.5,1.5,1])
+        st.markdown("<br>",unsafe_allow_html=True)
+
+        # 다운로드
+        download_text=build_download_text(img_brand if img_brand else "상품", prompt_text)
+        dl1,tg_img,clr_img=st.columns([2,1.5,1])
+        with dl1:
+            st.download_button(
+                "💾 전체 프롬프트 TXT 다운로드",
+                data=download_text,
+                file_name=f"{img_brand if img_brand else '상품'}_상세페이지_프롬프트.txt",
+                mime="text/plain",
+                use_container_width=True
+            )
         with tg_img:
-            if st.button("📱 프롬프트 텔레그램 전송",use_container_width=True,key="img_tg"):
+            if st.button("📱 텔레그램 전송",use_container_width=True,key="img_tg"):
                 ok_sent=send_tg_long(prompt_text,"🎨 상세페이지 이미지 프롬프트")
                 st.success("전송 완료") if ok_sent else st.error("전송 실패")
-        with copy_img:
-            st.download_button("💾 텍스트 파일 다운로드",data=prompt_text,
-                               file_name=f"{img_brand}_상세페이지_프롬프트.txt",
-                               mime="text/plain",use_container_width=True)
         with clr_img:
             if st.button("초기화",use_container_width=True,key="img_clr"):
                 st.session_state["img_prompt"]=None; st.rerun()
 
+        st.info("💡 생성된 'image 2 프롬프트' 텍스트를 ChatGPT (GPT-4o)에 붙여넣으면 이미지가 생성됩니다. "
+                "ChatGPT Plus(월 $20) 또는 무료 한도 내에서 사용 가능합니다.")
+
 # ══════════════════════════════════════════════════════════════
-# TAB 5: 텔레그램 설정
+# TAB 5: 텔레그램
 # ══════════════════════════════════════════════════════════════
 with tab5:
     st.markdown("### 📱 텔레그램 알림 설정")
@@ -845,8 +959,6 @@ chat.id 뒤 숫자가 채팅방 ID
 TELEGRAM_BOT_TOKEN = "봇토큰"
 TELEGRAM_CHAT_ID   = "채팅방ID"
 GEMINI_API_KEY     = "제미나이키(무료)"
-ONCHANNEL_ID       = "온채널ID(선택)"
-ONCHANNEL_PW       = "온채널PW(선택)"
 """,language="toml")
         test_msg=st.text_input("테스트 메시지",value="소싱레이더 연동 테스트")
         if st.button("테스트 발송",type="primary",use_container_width=True):
@@ -860,50 +972,51 @@ with tab6:
     st.markdown("### 📖 가이드")
     with st.expander("플랫폼별 수수료 안내 (2025년 기준)"):
         st.markdown("""
-| 플랫폼 | 적용 수수료 | 실제 범위 | 비고 |
-|---|---|---|---|
-| 네이버 스마트스토어 | 6% | 판매2.73% + 결제3.3% | 유입경로별 상이 |
-| 쿠팡 | 11% | 4~10.8% 카테고리별 | 배송비 수수료 별도 |
-| 11번가 | 12% | 6~13% 카테고리별 | 신규입점 6% 혜택 |
-| G마켓 | 12% | 4~15% 카테고리별 | 선결제 배송비 3.3% |
-| 옥션 | 12% | 4~15% 카테고리별 | G마켓과 동일 구조 |
-
-소싱레이더의 수수료는 카테고리 평균 대표값입니다. 정확한 수수료는 각 플랫폼 판매자센터에서 확인하세요.
+| 플랫폼 | 적용 수수료 | 실제 범위 |
+|---|---|---|
+| 네이버 스마트스토어 | 6% | 판매2.73%+결제3.3% |
+| 쿠팡 | 11% | 4~10.8% 카테고리별 |
+| 11번가 | 12% | 6~13% 카테고리별 |
+| G마켓 | 12% | 4~15% 카테고리별 |
+| 옥션 | 12% | 4~15% 카테고리별 |
         """)
-    with st.expander("업체등급 표시 방식"):
+    with st.expander("업체등급 — 왜 안 나오나요?"):
         st.markdown("""
-도매매/도매꾹 목록 API에는 업체등급 정보가 없습니다.
+도매매/도매꾹 목록 API에는 seller/grade 필드가 없습니다.
+
 등급 확인 방법:
+1. 검색 결과 상단 🏅 업체등급 조회 버튼 클릭 (상위 15개 상세 API 호출)
+2. ⭐ 관심 등록 시 해당 상품 상세 API 즉시 호출 → 등급 자동 저장
 
-1. 검색 결과 화면에서 🏅 업체등급 조회 버튼 클릭 (상위 15개 상세 API 호출, 약 5~10초)
-2. 관심 등록 시 해당 상품 상세 API를 즉시 호출해서 등급 자동 저장
+Streamlit Cloud 로그(Manage app → Logs)에서 [상세 seller원문] 줄을 보면 
+실제 API가 어떤 필드명으로 등급을 반환하는지 확인할 수 있습니다.
+이 정보를 공유해주시면 정확하게 파싱하도록 코드를 수정할 수 있습니다.
+        """)
+    with st.expander("온채널 — 왜 검색이 안 되나요?"):
+        st.markdown("""
+온채널(onch3.co.kr)은 클라우드 서버 IP에 대해 403 차단을 적용합니다.
+로그인 요청조차 403으로 거부됩니다.
 
-등급 체계: S등급 최우수 / A등급 우수 / B등급 양호 / C등급 보통 / D등급 미흡 / E등급 불량
-B등급 이상 공급사 소싱을 권장합니다.
+해결 방법:
+로컬 PC에 Python + Streamlit 설치 후 직접 실행하면 일반 IP로 접속되어 크롤링 가능합니다.
+클라우드 배포 환경에서는 온채널 검색이 구조적으로 불가능합니다.
         """)
-    with st.expander("온채널 연동 방법"):
+    with st.expander("AI 이미지 생성 — ChatGPT 사용 방법"):
         st.markdown("""
-온채널은 비로그인 상태에서 자동화 접근이 차단됩니다.
-로그인 계정 등록 후 크롤링이 가능합니다.
+ChatGPT Image 2 사용 방법:
+1. chatgpt.com 접속 (무료 계정 또는 Plus)
+2. 소싱레이더에서 생성된 프롬프트 복사
+3. ChatGPT 대화창에 붙여넣기
+4. 생성된 이미지 우클릭 → 이미지 저장
 
-Secrets에 등록:
-ONCHANNEL_ID = "아이디"
-ONCHANNEL_PW = "비밀번호"
+무료 계정: 하루 일정 횟수 이미지 생성 가능
+Plus($20/월): 제한 없이 생성 가능
+
+Adobe Firefly (무료): firefly.adobe.com
+Bing Image Creator (무료): bing.com/create
         """)
-    with st.expander("키워드 검색 탭 사용법"):
+    with st.expander("마진 계산 공식"):
         st.markdown("""
-1. 상품명과 주요 특징 입력
-2. 등록할 플랫폼 선택 (다중 선택 가능)
-3. 또는 라이브 검색 결과에서 상품 직접 선택
-4. 키워드 생성 버튼 클릭
-5. 플랫폼별 최적화된 상품명, 핵심 키워드, 롱테일 키워드, 태그 자동 생성
-        """)
-    with st.expander("AI 이미지 생성 탭 사용법"):
-        st.markdown("""
-1. 브랜드명, 타겟, 톤앤매너 입력
-2. 참고 상품 URL 입력 시 AI가 상품 참고 가능
-3. 주요 특징을 상세히 입력할수록 더 정확한 프롬프트 생성
-4. 생성된 프롬프트를 ChatGPT Image 2 또는 Midjourney에 입력
-5. 스마트스토어 최적 규격 (860px 고정) 기준으로 설계됨
-6. 텍스트 파일로 다운로드 또는 텔레그램 전송 가능
+추천 판매가 = (공급가 + 배송비) 나누기 (1 빼기 수수료율 빼기 마진율)
+예상 순수익 = 판매가 빼기 (판매가 곱하기 수수료율) 빼기 공급가 빼기 배송비
         """)
