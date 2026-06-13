@@ -42,6 +42,9 @@ section[data-testid="stSidebar"] *{color:#cbd5e1 !important}
     padding:3px 10px;border-radius:20px;margin:2px;font-weight:500}
 .ai-section{background:white;border-radius:12px;padding:1.2rem 1.4rem;
     border:1px solid #e2e8f0;margin-bottom:1rem}
+.copy-row{display:flex;align-items:center;gap:8px;margin:.3rem 0}
+.copy-row b{min-width:90px;font-size:.85rem;color:#374151}
+.copy-chip-wrap{flex:1;display:flex;flex-wrap:wrap;gap:4px}
 footer{visibility:hidden}
 </style>
 """, unsafe_allow_html=True)
@@ -734,13 +737,17 @@ with tab2:
             if track_changed: st.rerun()
 
         st.markdown("<br>",unsafe_allow_html=True)
+        tg_placeholder = st.empty()
         if st.button("📱 관심 상품 현황 텔레그램 전송",use_container_width=True):
             lines=[f"관심 상품 현황\n전체 {total_m}개 / 정상 {ok_m}개 / 평균마진 {avg_m:.1f}%\n"]
             for _,row in t_calc.iterrows():
                 icon="O" if row["status"]=="Y" else "X"
                 lines.append(f"{icon} {row['name'][:22]} 판매가{int(row['추천 판매가(원)']):,}원 수익{int(row['예상 순수익(원)']):,}원")
             ok_sent=send_tg_long("\n".join(lines),"관심 상품 현황")
-            st.success("전송 완료") if ok_sent else st.error("전송 실패")
+            if ok_sent:
+                tg_placeholder.success("✅ 전송 완료")
+            else:
+                tg_placeholder.error("❌ 전송 실패")
 
         # ── AI 소싱 분석 ──────────────────────────────────────
         st.markdown("---")
@@ -782,9 +789,13 @@ with tab2:
                 st.markdown(result_text)
                 tg2,clr=st.columns([2,1])
                 with tg2:
+                    ai_tg_ph = st.empty()
                     if st.button("📱 분석 결과 텔레그램 전송",use_container_width=True,key="ai_tg"):
                         ok_sent=send_tg_long(result_text,"🤖 AI 소싱 분석")
-                        st.success("전송 완료") if ok_sent else st.error("전송 실패")
+                        if ok_sent:
+                            ai_tg_ph.success("✅ 전송 완료")
+                        else:
+                            ai_tg_ph.error("❌ 전송 실패")
                 with clr:
                     if st.button("결과 초기화",use_container_width=True,key="ai_clr"):
                         st.session_state["ai_result"]=None; st.rerun()
@@ -813,13 +824,23 @@ with tab3:
         st.markdown("---")
         st.markdown("**🔑 플랫폼별 키워드 결과**")
         result_text=st.session_state["kw_result"]
+
+        # 결과 내 재검색
+        kw_inner=st.text_input("결과 내 키워드 재검색","",
+                               placeholder="키워드 입력 시 해당 내용 포함된 항목만 표시...",
+                               key="kw_inner_filter")
+
         # 플랫폼 섹션 파싱
         sections=[s.strip() for s in result_text.split("---") if s.strip()]
         for section in sections:
             lines=[l.strip() for l in section.split("\n") if l.strip()]
             if not lines: continue
-            # ★ ## 제거
             header=lines[0].replace("##","").strip().strip("[]").strip()
+
+            # 재검색 필터 적용
+            if kw_inner and kw_inner.lower() not in section.lower():
+                continue
+
             with st.expander(f"📍 {header}", expanded=True):
                 for line in lines[1:]:
                     if not line: continue
@@ -828,23 +849,33 @@ with tab3:
                         label=label.strip(); content=content.strip()
                         keywords=[k.strip() for k in content.split(",") if k.strip()]
                         if keywords and ("키워드" in label or "태그" in label or "해시태그" in label):
-                            # 키워드 칩 + Copy 버튼
-                            chips=" ".join([f'<span class="kw-chip">{k}</span>' for k in keywords])
                             copy_text=", ".join(keywords)
-                            col_chips,col_copy=st.columns([4,1])
-                            with col_chips:
-                                st.markdown(f'<div><b>{label}:</b><br>{chips}</div>',unsafe_allow_html=True)
-                            with col_copy:
-                                st.code(copy_text,language=None)
+                            chips=" ".join([f'<span class="kw-chip">{k}</span>' for k in keywords])
+                            # 칩 + 클립보드 복사 버튼 (텍스트 박스 없이)
+                            copy_js = f"""
+<div class="copy-row">
+  <b>{label}:</b>
+  <div class="copy-chip-wrap">{chips}</div>
+  <button onclick="navigator.clipboard.writeText('{copy_text}').then(()=>{{
+    this.textContent='✅';setTimeout(()=>this.textContent='📋',1500)}})"
+    style="background:#3b82f6;color:white;border:none;border-radius:6px;
+    padding:4px 10px;font-size:.8rem;cursor:pointer;flex-shrink:0">📋 복사</button>
+</div>"""
+                            st.markdown(copy_js, unsafe_allow_html=True)
                         else:
                             st.markdown(f"**{label}:** {content}")
                     else:
                         st.markdown(line)
+
+        kw_tg_ph=st.empty()
         tg_kw,clr_kw=st.columns([2,1])
         with tg_kw:
             if st.button("📱 키워드 텔레그램 전송",use_container_width=True,key="kw_tg"):
                 ok_sent=send_tg_long(result_text,"🔑 키워드 생성 결과")
-                st.success("전송 완료") if ok_sent else st.error("전송 실패")
+                if ok_sent:
+                    kw_tg_ph.success("✅ 전송 완료")
+                else:
+                    kw_tg_ph.error("❌ 전송 실패")
         with clr_kw:
             if st.button("초기화",use_container_width=True,key="kw_clr"):
                 st.session_state["kw_result"]=None; st.rerun()
@@ -957,7 +988,8 @@ chat.id 뒤 숫자가 채팅방 ID
         st.markdown("Secrets 등록")
         st.code("""DOMEGGOOK_API_KEY  = "API키"
 TELEGRAM_BOT_TOKEN = "봇토큰"
-TELEGRAM_CHAT_ID   = "채팅방ID"
+TELEGRAM_CHAT_ID   = "내 채팅방ID"
+TELEGRAM_CHAT_IDS  = "ID1,ID2,ID3"
 GEMINI_API_KEY     = "제미나이키(무료)"
 """,language="toml")
         test_msg=st.text_input("테스트 메시지",value="소싱레이더 연동 테스트")
