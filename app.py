@@ -46,10 +46,10 @@ footer { visibility: hidden; }
 
 # ── Secrets / API 초기화 ─────────────────────────────────────
 try:
-    DOME_KEY     = st.secrets["DOMEGGOOK_API_KEY"]
-    CLAUDE_KEY   = st.secrets.get("ANTHROPIC_API_KEY", "")
+    DOME_KEY    = st.secrets["DOMEGGOOK_API_KEY"]
+    GEMINI_KEY  = st.secrets.get("GEMINI_API_KEY", "")
 except Exception:
-    DOME_KEY, CLAUDE_KEY = "", ""
+    DOME_KEY, GEMINI_KEY = "", ""
 
 init_db()
 client = DomeameClient(api_key=DOME_KEY) if DOME_KEY else None
@@ -149,8 +149,8 @@ def reset_all():
 
 def ai_analyze(tracked_df: pd.DataFrame, fee: float, margin: float,
                platform_name: str, margin_name: str) -> str | None:
-    """Claude API로 관심 상품 소싱 분석. ANTHROPIC_API_KEY 필요."""
-    if not CLAUDE_KEY:
+    """Google Gemini API로 관심 상품 소싱 분석. GEMINI_API_KEY 필요 (무료)."""
+    if not GEMINI_KEY:
         return None
 
     items_summary = []
@@ -182,21 +182,19 @@ def ai_analyze(tracked_df: pd.DataFrame, fee: float, margin: float,
 한국어로 간결하게."""
 
     try:
+        # Gemini API (무료 Flash-Lite 모델 사용)
         resp = req.post(
-            "https://api.anthropic.com/v1/messages",
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": CLAUDE_KEY,
-                "anthropic-version": "2023-06-01",
-            },
-            json={"model": "claude-sonnet-4-6", "max_tokens": 1500,
-                  "messages": [{"role": "user", "content": prompt}]},
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={GEMINI_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}],
+                  "generationConfig": {"maxOutputTokens": 2000, "temperature": 0.3}},
             timeout=30,
         )
         if resp.status_code == 200:
-            return resp.json()["content"][0]["text"]
+            data = resp.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
         else:
-            return f"AI 오류 {resp.status_code}: {resp.text[:200]}"
+            return f"Gemini 오류 {resp.status_code}: {resp.text[:300]}"
     except Exception as e:
         return f"AI 연결 오류: {e}"
 
@@ -254,9 +252,9 @@ with st.sidebar:
         ok = send_telegram_message(f"✅ 소싱레이더 연동 테스트!\n관심 상품: {total_t}개")
         st.success("발송 완료!") if ok else st.error("발송 실패")
 
-    ai_key_set = bool(CLAUDE_KEY)
+    ai_key_set = bool(GEMINI_KEY)
     st.markdown("---")
-    st.markdown(f"#### 🤖 AI 분석\n상태: {'✅ 사용 가능' if ai_key_set else '⚠️ ANTHROPIC_API_KEY 미설정'}")
+    st.markdown(f"#### 🤖 AI 분석 (Gemini 무료)\n상태: {'✅ 사용 가능' if ai_key_set else '⚠️ GEMINI_API_KEY 미설정'}")
     st.markdown("---")
     st.caption("소싱레이더 v4.0 | 도매매·도매꾹")
 
@@ -534,8 +532,8 @@ with tab_monitor:
         # ── AI 소싱 분석 ──────────────────────────────────────
         st.markdown("---")
         st.markdown("#### 🤖 AI 소싱 분석")
-        if not CLAUDE_KEY:
-            st.info("💡 AI 분석을 사용하려면 Streamlit Secrets에 `ANTHROPIC_API_KEY`를 등록하세요.")
+        if not GEMINI_KEY:
+            st.info("💡 AI 분석을 사용하려면 Streamlit Secrets에 `GEMINI_API_KEY`를 등록하세요. (Google AI Studio에서 무료 발급)")
         else:
             st.caption("관심 상품 목록을 AI가 분석하여 소싱 가치와 리스크를 평가합니다.")
             if st.button("✨ AI 소싱 분석 시작", type="primary", use_container_width=True):
@@ -577,7 +575,7 @@ https://api.telegram.org/bot[토큰]/getUpdates
         st.code("""DOMEGGOOK_API_KEY  = "도매꾹API키"
 TELEGRAM_BOT_TOKEN = "봇토큰"
 TELEGRAM_CHAT_ID   = "채팅방ID"
-ANTHROPIC_API_KEY  = "AI분석용키(선택)"
+GEMINI_API_KEY     = "제미나이키(무료·선택)"
 """, language="toml")
         st.markdown("#### 4단계 — 테스트")
         test_msg = st.text_input("테스트 메시지", value="소싱레이더 연동 테스트 ✅")
@@ -647,7 +645,8 @@ with tab_guide:
 
     with st.expander("🤖 AI 소싱 분석 사용법"):
         st.markdown("""
-1. Streamlit Secrets에 `ANTHROPIC_API_KEY` 등록 ([console.anthropic.com](https://console.anthropic.com)에서 발급)
+1. [aistudio.google.com](https://aistudio.google.com)에서 무료 API 키 발급
+2. Streamlit Secrets에 `GEMINI_API_KEY = "발급받은키"` 등록
 2. 관심 상품 탭 → **AI 소싱 분석 시작** 버튼 클릭
 3. AI가 각 상품의 추천도·리스크·총평을 분석해서 제공
 4. 분석 결과를 텔레그램으로 바로 전송 가능
