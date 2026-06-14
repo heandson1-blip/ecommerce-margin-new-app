@@ -1,11 +1,14 @@
 """
-onchannel_client.py v11
-온채널(onch3.co.kr)은 Streamlit Cloud 서버 IP를 403으로 완전 차단합니다.
-로컬 PC에서 실행 시에는 로그인 후 크롤링이 가능할 수 있습니다.
-클라우드 환경에서는 온채널 상품 검색이 불가합니다.
+onchannel_client.py
+온채널은 클라우드 서버 IP를 403으로 차단합니다.
+분석 보고서 보완: raise 대신 빈 리스트 + 경고 메시지 반환으로 전체 검색 마비 방지
 """
-import requests, re, time
+import requests
+import re
+import time
 from bs4 import BeautifulSoup
+
+CLOUD_BLOCK_MSG = "온채널은 클라우드 서버 IP를 차단합니다 (403). 온채널 상품은 직접 사이트에서 확인해주세요."
 
 
 class OnchannelClient:
@@ -15,26 +18,25 @@ class OnchannelClient:
                        "AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36"),
         "Accept-Language": "ko-KR,ko;q=0.9",
     }
-    BLOCKED_MSG = ("온채널은 클라우드 서버 IP를 차단하고 있어 검색이 불가합니다.\n"
-                   "온채널 상품은 직접 사이트(onch3.co.kr)에서 확인해 주세요.")
 
     def __init__(self, user_id="", password=""):
-        self.user_id  = user_id
-        self.password = password
-        self.session  = requests.Session()
+        self.user_id     = user_id
+        self.password    = password
+        self.session     = requests.Session()
         self.session.headers.update(self.HEADERS)
-        self._logged_in = False
-        self._blocked   = False
+        self._logged_in  = False
+        self._blocked    = False
+        self.last_error  = ""   # ★ 에러 메시지를 내부에 저장, raise 금지
 
     def login(self) -> bool:
         if not self.user_id or not self.password:
-            print("[온채널] ID/PW 미설정")
+            self.last_error = "온채널 ID/PW 미설정"
             return False
         try:
             r = self.session.get(f"{self.BASE}/", timeout=10)
             if r.status_code == 403:
-                self._blocked = True
-                print("[온채널] 서버 IP 차단 (403)")
+                self._blocked  = True
+                self.last_error = CLOUD_BLOCK_MSG
                 return False
             time.sleep(0.3)
             r2 = self.session.post(
@@ -43,56 +45,72 @@ class OnchannelClient:
                 timeout=15, allow_redirects=True
             )
             if r2.status_code == 403:
-                self._blocked = True
+                self._blocked  = True
+                self.last_error = CLOUD_BLOCK_MSG
                 return False
             check = self.session.get(f"{self.BASE}/mypage_main.php", timeout=10)
             if "로그아웃" in check.text or self.user_id in check.text:
                 self._logged_in = True
                 print("[온채널] 로그인 성공")
                 return True
-            print("[온채널] 로그인 실패")
+            self.last_error = "온채널 로그인 실패 (ID/PW 확인)"
             return False
         except Exception as e:
-            print(f"[온채널] 오류: {e}")
+            self.last_error = f"온채널 연결 오류: {e}"
             return False
 
     def fetch_product_list(self, keyword="", page_size=50, max_pages=2) -> list[dict]:
+        """
+        ★ 분석 보고서 보완: 실패 시 raise 대신 빈 리스트 반환
+        호출측은 self.last_error로 실패 원인 확인 가능
+        """
         if not keyword:
             return []
+
+        self.last_error = ""
+
         if self._blocked:
-            raise Exception(self.BLOCKED_MSG)
+            self.last_error = CLOUD_BLOCK_MSG
+            return []
+
         if not self._logged_in:
             ok = self.login()
             if not ok:
-                if self._blocked:
-                    raise Exception(self.BLOCKED_MSG)
-                raise Exception("온채널 로그인 실패 — ID/PW를 확인하세요.")
+                return []   # last_error 이미 설정됨
 
         all_results = []
         endpoints = [
-            (f"{self.BASE}/onch_main.html",  {"search_txt": keyword}),
-            (f"{self.BASE}/goods_search.php", {"skw": keyword, "sm": "goods_name"}),
+            (f"{self.BASE}/onch_main.html",   {"search_txt": keyword}),
+            (f"{self.BASE}/goods_search.php",  {"skw": keyword, "sm": "goods_name"}),
         ]
         for url, base_params in endpoints:
             for pg in range(1, max_pages + 1):
                 try:
                     params = {**base_params, "page": pg}
-                    resp = self.session.get(url, params=params, timeout=15)
+                    resp   = self.session.get(url, params=params, timeout=15)
                     if resp.status_code == 403:
-                        self._blocked = True
-                        raise Exception(self.BLOCKED_MSG)
+                        self._blocked  = True
+                        self.last_error = CLOUD_BLOCK_MSG
+                        return []
                     if resp.status_code != 200:
                         break
                     resp.encoding = "utf-8"
                     items = self._crawl(resp.text)
-                    if not items: break
+                    if not items:
+                        break
                     all_results.extend(items)
                     print(f"[온채널] {url.split('/')[-1]} pg={pg} → {len(items)}개")
-                    if len(items) < 5 or len(all_results) >= page_size: break
+                    if len(items) < 5 or len(all_results) >= page_size:
+                        break
                     time.sleep(0.5)
                 except Exception as e:
-                    raise
-            if all_results: break
+                    self.last_error = f"온채널 오류: {e}"
+                    return []
+            if all_results:
+                break
+
+        if not all_results and not self.last_error:
+            self.last_error = "온채널 검색 결과 없음 (로그인 필요 또는 페이지 구조 변경)"
         return all_results[:page_size]
 
     def _crawl(self, html: str) -> list[dict]:
@@ -108,7 +126,8 @@ class OnchannelClient:
             )
             for item in containers:
                 r = self._extract(item)
-                if r: results.append(r)
+                if r:
+                    results.append(r)
         except Exception as e:
             print(f"[온채널 파싱] {e}")
         return results
@@ -125,9 +144,11 @@ class OnchannelClient:
     def _extract(self, item) -> dict | None:
         name_el = (item.select_one(".goods_name,.item_name,.name,strong.tit")
                    or item.select_one("strong") or item.select_one("a"))
-        if not name_el: return None
+        if not name_el:
+            return None
         name = name_el.get_text(strip=True)
-        if len(name) < 2 or name.isdigit(): return None
+        if len(name) < 2 or name.isdigit():
+            return None
 
         price_el = item.select_one(".goods_price,.price,[class*='price']")
         price = 0
@@ -151,8 +172,9 @@ class OnchannelClient:
         link_el = item.select_one("a[href]")
         href = link_el["href"] if link_el else ""
         pid_m = re.search(r"num=(\d+)|vnum=(\d+)|no=(\d+)", href)
-        pid = next((g for g in (pid_m.groups() if pid_m else []) if g), "")
-        if not pid: return None
+        pid   = next((g for g in (pid_m.groups() if pid_m else []) if g), "")
+        if not pid:
+            return None
 
         return {"site":"온채널","product_id":f"OC_{pid}","name":name,
                 "supply_price":price,"delivery_fee":delivery,"status":"Y",

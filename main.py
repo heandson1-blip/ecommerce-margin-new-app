@@ -1,15 +1,7 @@
 """
 main.py — 일일 배치 작업 (매일 새벽 04:00 실행 권장)
-관심 상품의 최신 가격/재고를 API로 확인하고 DB를 갱신합니다.
-변동이 있으면 텔레그램으로 즉시 알림을 보냅니다.
-
-실행 방법:
-  python main.py
-
-자동화 (Linux cron):
-  0 4 * * * /usr/bin/python3 /path/to/main.py >> /var/log/sourcing.log 2>&1
+분석 보고서 보완: 온채널 상품 스킵 처리 추가
 """
-
 import os
 import sqlite3
 from datetime import datetime
@@ -21,7 +13,7 @@ from notifications import notify_status_changes, notify_batch_done
 DB_NAME = "sourcing.db"
 
 
-def get_tracked() -> list[dict]:
+def get_tracked():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     cur  = conn.cursor()
@@ -31,7 +23,7 @@ def get_tracked() -> list[dict]:
     return rows
 
 
-def update_db(product_id: str, site: str, status: str, price: int) -> None:
+def update_db(product_id, site, status, price):
     conn = sqlite3.connect(DB_NAME)
     conn.execute(
         "UPDATE products SET status=?, supply_price=?, updated_at=? WHERE product_id=? AND site=?",
@@ -41,14 +33,13 @@ def update_db(product_id: str, site: str, status: str, price: int) -> None:
     conn.close()
 
 
-def run_batch() -> None:
+def run_batch():
     print("=" * 60)
     print(f"  소싱레이더 일일 배치 시작: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
     api_key = os.environ.get("DOMEGGOOK_API_KEY", "")
     if not api_key:
-        # Streamlit secrets fallback (서버 환경용)
         try:
             import streamlit as st
             api_key = st.secrets.get("DOMEGGOOK_API_KEY", "")
@@ -56,23 +47,31 @@ def run_batch() -> None:
             pass
 
     if not api_key:
-        print("[오류] DOMEGGOOK_API_KEY가 설정되지 않았습니다.")
+        print("[오류] DOMEGGOOK_API_KEY 미설정")
         return
 
     client  = DomeameClient(api_key=api_key)
     tracked = get_tracked()
 
     if not tracked:
-        print("[완료] 관심 상품이 없습니다.")
+        print("[완료] 관심 상품 없음")
         notify_batch_done(0, 0)
         return
 
-    print(f"[시작] 관심 상품 {len(tracked)}개 상태 점검\n")
+    print(f"[시작] 관심 상품 {len(tracked)}개 점검\n")
     changed = []
+    skipped = 0
 
     for p in tracked:
-        pid       = p["product_id"]
-        site      = p["site"]
+        pid  = p["product_id"]
+        site = p["site"]
+
+        # ★ 분석 보고서 보완: 온채널 상품 스킵
+        if site == "온채널" or str(pid).startswith("OC_"):
+            print(f"  [온채널] {p['name'][:35]}... → 클라우드 배치 조회 불가, 스킵")
+            skipped += 1
+            continue
+
         old_st    = p["status"]
         old_price = p["supply_price"]
         market    = "supply" if site == "도매매" else "dome"
@@ -102,7 +101,7 @@ def run_batch() -> None:
 
         update_db(pid, site, new_st, new_price)
 
-    print(f"\n[완료] 변동 상품: {len(changed)}개")
+    print(f"\n[완료] 변동: {len(changed)}개 / 스킵(온채널): {skipped}개")
     notify_status_changes(changed)
     notify_batch_done(len(tracked), len(changed))
     print("=" * 60)
