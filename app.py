@@ -375,14 +375,18 @@ def gen_img_prompt(spec, brand, features, target, category, image_b64=""):
     dalle_prompt = (
         "Photorealistic commercial photography, Naver Smartstore detail page image, "
         f"{brand} {category} product, {stage_dir}.{pkg_desc} "
-        "CRITICAL: The top 38% of the vertical canvas must be a completely flat, solid, "
-        "single-tone color with zero textures, objects, patterns or gradients — "
-        "reserved strictly for Korean text overlay in post-production. "
+        "The top 38% of the vertical canvas must be pure white (#FFFFFF), "
+        "completely flat with zero textures, objects, or gradients, "
+        "reserved for Korean headline and subheadline placement. "
         "Product occupies lower 62% of frame. "
         "Professional studio lighting, mobile-first single focal point, high contrast. "
         f"Target customer: {target if target else 'Korean adults 20-50'}. "
         "No text, no watermarks, no fake ratings. "
-        f"Aspect ratio 860x{spec['h']} pixels (tall vertical format)."
+        f"860px width, {spec['h']}px height (tall vertical format). "
+        "Generate ONE image only. "
+        "Do not create collages. "
+        "Do not create multi-panel layouts. "
+        "Do not combine multiple sections into one canvas."
     )
 
     # 카피는 별도 짧게 생성 (토큰 효율)
@@ -395,8 +399,9 @@ def gen_img_prompt(spec, brand, features, target, category, image_b64=""):
         f"[Image {spec['no']:02d}: {spec['stage']} ({spec['kr']}) | 860×{spec['h']}px]\n\n"
         + copy_result.strip()
         + "\n\n---\n"
-        "DALL-E 3 Prompt (아래 내용 전체를 ChatGPT에 붙여넣기):\n\n"
-        "이 프롬프트로 이미지를 생성해줘:\n\n"
+        f"DALL-E 3 Prompt (아래 내용 전체를 ChatGPT에 붙여넣기):\n"
+        f"파일명: {spec['no']:02d}_{spec['stage']}.png 으로 저장하세요\n\n"
+        "이 프롬프트로 이미지를 지금 바로 생성해줘:\n\n"
         + dalle_prompt
     )
 
@@ -715,11 +720,14 @@ with tab4:
             it=st.text_input("타겟 고객 (선택)",placeholder="예: 20~40대 건강관리 직장인",key="it")
             icat=st.selectbox("카테고리 *",["식품/음료","뷰티/화장품","패션/의류","생활용품","디지털/가전","스포츠/레저","기타"],key="icat")
         with ic2:
-            iup=st.file_uploader("상품 이미지 업로드 (선택 — 패키지 정보 반영)",
-                                 type=["jpg","jpeg","png","webp"],key="iup")
-            if iup:
-                st.image(iup,width=180,caption="업로드 이미지")
-                st.caption("Gemini Vision이 패키지 색상·형태를 분석해 DALL-E 3 프롬프트에 반영합니다.")
+            iup_files=st.file_uploader("상품 이미지 업로드 (선택 — 다중 선택 가능, Gemini Vision 분석)",
+                                 type=["jpg","jpeg","png","webp"],
+                                 accept_multiple_files=True, key="iup")
+            if iup_files:
+                img_cols=st.columns(min(len(iup_files),4))
+                for ci,f in enumerate(iup_files[:4]):
+                    with img_cols[ci]: st.image(f,use_container_width=True,caption=f.name)
+                st.caption(f"✅ {len(iup_files)}개 업로드됨 — Gemini Vision이 첫 번째 이미지를 기준으로 패키지 색상·형태를 분석합니다.")
         iff=st.text_area("상품 주요 특징 *",placeholder="1. 특징1\n2. 특징2\n3. 특징3",height=100,key="iff")
 
     # ★ 이미지 전체 체크박스 리스트 UI
@@ -728,26 +736,30 @@ with tab4:
 
     col_sel, col_desel = st.columns([1,1])
     with col_sel:
-        if st.button("☑️ 전체 선택",use_container_width=True):
-            st.session_state["img_checked"]=list(range(1,13)); st.rerun()
+        if st.button("☑️ 전체 선택", use_container_width=True, key="img_sel_all"):
+            for s in IMAGE_SPEC:
+                st.session_state[f"img_chk_{s['no']}"] = True
+            st.rerun()
     with col_desel:
-        if st.button("☐ 전체 해제",use_container_width=True):
-            st.session_state["img_checked"]=[]; st.rerun()
+        if st.button("☐ 전체 해제", use_container_width=True, key="img_desel_all"):
+            for s in IMAGE_SPEC:
+                st.session_state[f"img_chk_{s['no']}"] = False
+            st.rerun()
 
-    checked=st.session_state.get("img_checked",list(range(1,13)))
-    new_checked=[]
-    cols_chk=st.columns(2)
-    for i,spec in enumerate(IMAGE_SPEC):
-        with cols_chk[i%2]:
-            is_chk=spec["no"] in checked
-            val=st.checkbox(
+    new_checked = []
+    cols_chk = st.columns(2)
+    for i, spec in enumerate(IMAGE_SPEC):
+        with cols_chk[i % 2]:
+            # ★ key 기반 독립 체크박스 — 전체 해제 버튼과 충돌 없음
+            default_val = st.session_state.get(f"img_chk_{spec['no']}", True)
+            val = st.checkbox(
                 f"**{spec['no']:02d}** — {spec['stage']} ({spec['kr']})  |  860×{spec['h']}px  |  {spec['desc']}",
-                value=is_chk, key=f"img_chk_{spec['no']}")
-            if val: new_checked.append(spec["no"])
-    st.session_state["img_checked"]=new_checked
+                value=default_val, key=f"img_chk_{spec['no']}")
+            if val:
+                new_checked.append(spec["no"])
 
-    sel_count=len(new_checked)
-    if sel_count>0:
+    sel_count = len(new_checked)
+    if sel_count > 0:
         st.info(f"✅ {sel_count}개 선택됨 — 예상 소요 시간: 약 {sel_count*15}~{sel_count*25}초")
 
     if st.button(f"🎨 선택된 {sel_count}개 이미지 프롬프트 생성",type="primary",
@@ -755,8 +767,14 @@ with tab4:
                  disabled=(not GEMINI_KEY or not ib or not iff or sel_count==0)):
         sel_specs=[s for s in IMAGE_SPEC if s["no"] in new_checked]
         image_b64=""
-        if iup:
-            try: image_b64=base64.b64encode(iup.getvalue()).decode("utf-8")
+        iup_files_ref = st.session_state.get("iup", [])
+        # file_uploader multi는 리스트 반환, 첫 번째 이미지로 Vision 분석
+        _first_img = None
+        if "iup" in st.session_state and st.session_state["iup"]:
+            try: _first_img = st.session_state["iup"][0] if isinstance(st.session_state["iup"],list) else st.session_state["iup"]
+            except: pass
+        if _first_img:
+            try: image_b64=base64.b64encode(_first_img.getvalue()).decode("utf-8")
             except: pass
 
         prog=st.progress(0,text="프롬프트 생성 시작...")
@@ -1051,7 +1069,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         data=df_s.to_csv(index=False).encode("utf-8-sig"),
                         file_name="naver_shopping.csv",mime="text/csv")
 
-            # ── NST3: 블로그 ───────────────────────────────
+            # ── NST3: 블로그 (dashboard.py 기준) ─────────────
             with nst3:
                 st.markdown("#### 📝 실시간 블로그 분석")
                 if st.button("🔍 블로그 검색",type="primary",use_container_width=True,key="blog_btn"):
@@ -1062,14 +1080,56 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
 
                 df_bl = st.session_state.get("na_blog_df",pd.DataFrame())
                 if not df_bl.empty:
-                    st.info(f"총 {len(df_bl)}건 수집")
-                    # 키워드별 건수 차트
-                    cnt = df_bl["search_keyword"].value_counts().reset_index()
-                    cnt.columns=["키워드","건수"]
-                    st.plotly_chart(px.bar(cnt,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수"),use_container_width=True)
-                    # 페이징 목록
+                    df_bl2 = df_bl.copy()
+                    df_bl2["postdate"] = pd.to_datetime(df_bl2["postdate"],format="%Y%m%d",errors="coerce")
+                    st.metric("수집된 블로그 문서",f"{len(df_bl2):,}건")
+
+                    # ① 키워드별 최근 블로그 게시물 분포 (라인 차트)
+                    blog_daily = df_bl2.groupby(["postdate","search_keyword"]).size().reset_index(name="content_count")
+                    fig_bl = px.line(blog_daily,x="postdate",y="content_count",color="search_keyword",
+                                     title="키워드별 최근 블로그 게시물 분포",markers=True,
+                                     labels={"postdate":"작성일","content_count":"게시물 수","search_keyword":"키워드"})
+                    st.plotly_chart(fig_bl,use_container_width=True)
+
+                    bc1,bc2 = st.columns(2)
+                    with bc1:
+                        # ② 주요 활동 블로거 TOP10
+                        if "bloggername" in df_bl2.columns:
+                            top_bloggers = df_bl2["bloggername"].value_counts().head(10).reset_index()
+                            top_bloggers.columns = ["블로거명","게시물 수"]
+                            fig_blogger = px.bar(top_bloggers,x="게시물 수",y="블로거명",orientation="h",
+                                                 title="🏆 주요 활동 블로거 TOP10",
+                                                 color="게시물 수",color_continuous_scale="Magma")
+                            st.plotly_chart(fig_blogger,use_container_width=True)
+                    with bc2:
+                        # ③ 블로그 제목 핵심 단어
+                        from collections import Counter
+                        all_titles = " ".join(df_bl2["title"].dropna().tolist())
+                        words = [w for w in all_titles.split() if len(w)>1 and w not in na_keywords]
+                        wc_data = Counter(words).most_common(12)
+                        if wc_data:
+                            df_wc = pd.DataFrame(wc_data,columns=["단어","빈도"])
+                            fig_wc = px.bar(df_wc,x="단어",y="빈도",color="빈도",
+                                            title="블로그 제목 핵심 단어",
+                                            color_continuous_scale="PuRd",text_auto=True)
+                            st.plotly_chart(fig_wc,use_container_width=True)
+
+                    # ④ 블로그 이슈 워드클라우드
+                    st.markdown("**☁️ 블로그 이슈 워드클라우드**")
+                    try:
+                        from wordcloud import WordCloud
+                        wc = WordCloud(width=800,height=300,background_color="white",
+                                       max_words=80).generate(all_titles)
+                        st.image(wc.to_array(),caption="Blog Title WordCloud",use_container_width=True)
+                    except ImportError:
+                        st.caption("워드클라우드: wordcloud 패키지 필요 (requirements.txt에 추가됨)")
+
+                    st.divider()
+                    # ⑤ 최근 블로그 콘텐츠 통합 리스트 (페이징)
+                    st.markdown("**📖 최근 블로그 콘텐츠 통합 리스트**")
                     pg_bl = st.session_state.get("na_blog_page",1)
-                    total_bl = max(1,(len(df_bl)-1)//20+1)
+                    sorted_bl = df_bl2.sort_values("postdate",ascending=False)
+                    total_bl = max(1,(len(sorted_bl)-1)//20+1)
                     pg_bl = min(pg_bl,total_bl)
                     pn1,pn2,pn3=st.columns([1,3,1])
                     with pn1:
@@ -1079,12 +1139,18 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     with pn3:
                         if st.button("다음",key="bl_next",disabled=(pg_bl>=total_bl)):
                             st.session_state["na_blog_page"]=pg_bl+1; st.rerun()
-                    for _,row in df_bl.iloc[(pg_bl-1)*20:pg_bl*20].iterrows():
-                        st.markdown(f"**[{row['title']}]({row['link']})**")
-                        st.caption(f"{row['description'][:120]}... | {row.get('postdate','')} | {row['search_keyword']}")
-                        st.divider()
+                    disp_cols = ["search_keyword","title","postdate","link"]
+                    disp_cols_exist = [c for c in disp_cols if c in sorted_bl.columns]
+                    st.dataframe(sorted_bl[disp_cols_exist].iloc[(pg_bl-1)*20:pg_bl*20],
+                        column_config={
+                            "search_keyword":st.column_config.TextColumn("키워드"),
+                            "title":st.column_config.TextColumn("제목",width="large"),
+                            "postdate":st.column_config.DateColumn("작성일",format="YYYY-MM-DD"),
+                            "link":st.column_config.LinkColumn("링크",display_text="바로가기")},
+                        use_container_width=True,hide_index=True)
+                    st.download_button("📥 블로그 CSV",data=df_bl2.to_csv(index=False).encode("utf-8-sig"),file_name="blog.csv",mime="text/csv")
 
-            # ── NST4: 카페 ──────────────────────────────────
+            # ── NST4: 카페 (dashboard.py 기준) ──────────────────
             with nst4:
                 st.markdown("#### ☕ 실시간 카페 분석")
                 if st.button("🔍 카페 검색",type="primary",use_container_width=True,key="cafe_btn"):
@@ -1095,10 +1161,51 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
 
                 df_ca = st.session_state.get("na_cafe_df",pd.DataFrame())
                 if not df_ca.empty:
-                    st.info(f"총 {len(df_ca)}건 수집")
-                    cnt_ca = df_ca["search_keyword"].value_counts().reset_index()
-                    cnt_ca.columns=["키워드","건수"]
-                    st.plotly_chart(px.bar(cnt_ca,x="키워드",y="건수",color="키워드",title="키워드별 카페 포스팅 수"),use_container_width=True)
+                    st.metric("수집된 카페 게시글",f"{len(df_ca):,}건")
+
+                    ca1,ca2 = st.columns(2)
+                    with ca1:
+                        # ① 키워드별 카페 활동량 비교
+                        cafe_kw = df_ca["search_keyword"].value_counts().reset_index()
+                        cafe_kw.columns=["키워드","게시물 수"]
+                        fig_cafe_kw = px.bar(cafe_kw,x="게시물 수",y="키워드",orientation="h",
+                                             title="키워드별 카페 활동량 비교",color="키워드",
+                                             color_discrete_sequence=px.colors.qualitative.Pastel)
+                        st.plotly_chart(fig_cafe_kw,use_container_width=True)
+                    with ca2:
+                        # ② 주요 활동 카페 TOP10
+                        if "cafename" in df_ca.columns:
+                            top_cafe = df_ca["cafename"].value_counts().head(10).reset_index()
+                            top_cafe.columns=["카페명","게시물 수"]
+                            fig_top_cafe = px.bar(top_cafe,x="게시물 수",y="카페명",orientation="h",
+                                                  title="🏆 주요 활동 카페 TOP10",
+                                                  color="게시물 수",color_continuous_scale="Viridis")
+                            st.plotly_chart(fig_top_cafe,use_container_width=True)
+
+                    # ③ 카페 게시글 핵심 키워드 분석 TOP15
+                    from collections import Counter
+                    all_ca_titles = " ".join(df_ca["title"].dropna().tolist())
+                    ca_words = [w for w in all_ca_titles.split() if len(w)>1 and w not in na_keywords]
+                    ca_wc = Counter(ca_words).most_common(15)
+                    if ca_wc:
+                        df_ca_wc = pd.DataFrame(ca_wc,columns=["단어","빈도"])
+                        fig_ca_kw = px.bar(df_ca_wc,x="단어",y="빈도",color="빈도",
+                                           title="카페 게시글 핵심 키워드 분석 (TOP15)",
+                                           color_continuous_scale="Blues",text_auto=True)
+                        st.plotly_chart(fig_ca_kw,use_container_width=True)
+
+                    # ④ 카페 이슈 워드클라우드
+                    st.markdown("**☁️ 카페 이슈 워드클라우드**")
+                    try:
+                        from wordcloud import WordCloud
+                        wc_ca = WordCloud(width=800,height=300,background_color="white",max_words=80).generate(all_ca_titles)
+                        st.image(wc_ca.to_array(),caption="Cafe Title WordCloud",use_container_width=True)
+                    except ImportError:
+                        st.caption("워드클라우드: wordcloud 패키지 필요")
+
+                    st.divider()
+                    # ⑤ 최신 통합 카페 게시물 (페이징)
+                    st.markdown("**👥 최신 통합 카페 게시물**")
                     pg_ca = st.session_state.get("na_cafe_page",1)
                     total_ca = max(1,(len(df_ca)-1)//20+1)
                     pg_ca = min(pg_ca,total_ca)
@@ -1110,12 +1217,18 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     with pn3:
                         if st.button("다음",key="ca_next",disabled=(pg_ca>=total_ca)):
                             st.session_state["na_cafe_page"]=pg_ca+1; st.rerun()
-                    for _,row in df_ca.iloc[(pg_ca-1)*20:pg_ca*20].iterrows():
-                        st.markdown(f"**[{row['title']}]({row['link']})**")
-                        st.caption(f"{row['description'][:120]}... | 카페: {row.get('cafename','')} | {row['search_keyword']}")
-                        st.divider()
+                    ca_cols=["search_keyword","title","cafename","link"]
+                    ca_cols_exist=[c for c in ca_cols if c in df_ca.columns]
+                    st.dataframe(df_ca[ca_cols_exist].iloc[(pg_ca-1)*20:pg_ca*20],
+                        column_config={
+                            "search_keyword":st.column_config.TextColumn("키워드"),
+                            "title":st.column_config.TextColumn("제목",width="large"),
+                            "cafename":st.column_config.TextColumn("카페명"),
+                            "link":st.column_config.LinkColumn("링크",display_text="바로가기")},
+                        use_container_width=True,hide_index=True)
+                    st.download_button("📥 카페 CSV",data=df_ca.to_csv(index=False).encode("utf-8-sig"),file_name="cafe.csv",mime="text/csv")
 
-            # ── NST5: 뉴스 ──────────────────────────────────
+            # ── NST5: 뉴스 (dashboard.py 기준) ──────────────────
             with nst5:
                 st.markdown("#### 📰 실시간 뉴스 분석")
                 if st.button("🔍 뉴스 검색",type="primary",use_container_width=True,key="news_btn"):
@@ -1126,12 +1239,45 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
 
                 df_nw = st.session_state.get("na_news_df",pd.DataFrame())
                 if not df_nw.empty:
-                    st.info(f"총 {len(df_nw)}건 수집")
-                    cnt_nw = df_nw["search_keyword"].value_counts().reset_index()
-                    cnt_nw.columns=["키워드","건수"]
-                    st.plotly_chart(px.bar(cnt_nw,x="키워드",y="건수",color="키워드",title="키워드별 뉴스 건수"),use_container_width=True)
+                    df_nw2 = df_nw.copy()
+                    df_nw2["pubDate"] = pd.to_datetime(df_nw2["pubDate"],errors="coerce")
+                    st.metric("수집된 뉴스 기사",f"{len(df_nw2):,}건")
+
+                    # ① 날짜별 뉴스 발행 현황 (바 차트)
+                    news_daily = df_nw2.groupby([df_nw2["pubDate"].dt.date,"search_keyword"]).size().reset_index(name="뉴스 수")
+                    news_daily.columns=["발행일","키워드","뉴스 수"]
+                    fig_news_bar = px.bar(news_daily,x="발행일",y="뉴스 수",color="키워드",
+                                          barmode="group",title="날짜별 뉴스 발행 현황")
+                    st.plotly_chart(fig_news_bar,use_container_width=True)
+
+                    # ② 실시간 뉴스 핵심 키워드 (Hot Topics)
+                    from collections import Counter
+                    all_nw_titles = " ".join(df_nw2["title"].dropna().tolist())
+                    nw_words = [w for w in all_nw_titles.split() if len(w)>1 and w not in na_keywords]
+                    nw_wc = Counter(nw_words).most_common(15)
+                    if nw_wc:
+                        df_nw_wc = pd.DataFrame(nw_wc,columns=["단어","빈도"])
+                        fig_nw_kw = px.bar(df_nw_wc,x="빈도",y="단어",orientation="h",
+                                           title="실시간 뉴스 핵심 키워드 (Hot Topics)",
+                                           color="빈도",color_continuous_scale="Reds",text_auto=True)
+                        fig_nw_kw.update_layout(yaxis={"categoryorder":"total ascending"})
+                        st.plotly_chart(fig_nw_kw,use_container_width=True)
+
+                    # ③ 뉴스 이슈 워드클라우드
+                    st.markdown("**☁️ 뉴스 이슈 워드클라우드**")
+                    try:
+                        from wordcloud import WordCloud
+                        wc_nw = WordCloud(width=800,height=300,background_color="white",max_words=80).generate(all_nw_titles)
+                        st.image(wc_nw.to_array(),caption="News Title WordCloud",use_container_width=True)
+                    except ImportError:
+                        st.caption("워드클라우드: wordcloud 패키지 필요")
+
+                    st.divider()
+                    # ④ 최신 뉴스 게시물 (페이징)
+                    st.markdown("**🗞️ 최신 뉴스 게시물**")
                     pg_nw = st.session_state.get("na_news_page",1)
-                    total_nw = max(1,(len(df_nw)-1)//20+1)
+                    sorted_nw = df_nw2.sort_values("pubDate",ascending=False)
+                    total_nw = max(1,(len(sorted_nw)-1)//20+1)
                     pg_nw = min(pg_nw,total_nw)
                     pn1,pn2,pn3=st.columns([1,3,1])
                     with pn1:
@@ -1141,14 +1287,19 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     with pn3:
                         if st.button("다음",key="nw_next",disabled=(pg_nw>=total_nw)):
                             st.session_state["na_news_page"]=pg_nw+1; st.rerun()
-                    for _,row in df_nw.iloc[(pg_nw-1)*20:pg_nw*20].iterrows():
-                        st.markdown(f"**[{row['title']}]({row['link']})**")
-                        st.caption(f"{row['description'][:120]}... | {row.get('pubDate','')[:16]} | {row['search_keyword']}")
-                        st.divider()
+                    st.dataframe(sorted_nw[["search_keyword","title","pubDate","link"]].iloc[(pg_nw-1)*20:pg_nw*20],
+                        column_config={
+                            "search_keyword":st.column_config.TextColumn("키워드"),
+                            "title":st.column_config.TextColumn("제목",width="large"),
+                            "pubDate":st.column_config.DatetimeColumn("발행일시",format="YYYY-MM-DD HH:mm"),
+                            "link":st.column_config.LinkColumn("링크",display_text="바로가기")},
+                        use_container_width=True,hide_index=True)
+                    st.download_button("📥 뉴스 CSV",data=df_nw2.to_csv(index=False).encode("utf-8-sig"),file_name="news.csv",mime="text/csv")
 
-            # ── NST6: 쇼핑인사이트 ─────────────────────────
+            # ── NST6: 쇼핑인사이트 (기간=분석기간 연동, 다중 키워드) ──
             with nst6:
                 st.markdown("#### 📊 쇼핑인사이트 — 카테고리 키워드 클릭 트렌드")
+                st.caption(f"분석 기간: {na_start} ~ {na_end} (위 '분석 기간 직접 지정' 설정 적용)")
                 ins_col1,ins_col2 = st.columns(2)
                 with ins_col1:
                     ins_cat_name = st.selectbox("쇼핑 카테고리",list(INSIGHT_CATS.keys()) if INSIGHT_CATS else ["식품"],key="ins_cat")
@@ -1159,52 +1310,79 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     ins_tu     = ins_tu_map[ins_tu_sel]
 
                 if st.button("📊 쇼핑인사이트 분석",type="primary",use_container_width=True,key="ins_btn"):
-                    with st.spinner("쇼핑인사이트 데이터 수집 중..."):
-                        df_ins = naver_client.datalab_shopping_insight(
-                            ins_cat_id, na_keywords, na_start, na_end, ins_tu)
-                    st.session_state["na_ins_df"] = df_ins
+                    if not na_keywords:
+                        st.warning("위에서 키워드를 먼저 입력하세요.")
+                    else:
+                        with st.spinner(f"{len(na_keywords)}개 키워드 쇼핑인사이트 수집 중..."):
+                            df_ins = naver_client.datalab_shopping_insight(
+                                ins_cat_id, na_keywords, na_start, na_end, ins_tu)
+                        st.session_state["na_ins_df"] = df_ins
 
                 df_ins = st.session_state.get("na_ins_df", pd.DataFrame())
                 if not df_ins.empty:
                     df_ins["period"] = pd.to_datetime(df_ins["period"])
+                    unique_kws = df_ins["keyword"].unique().tolist()
+                    st.info(f"분석 키워드: {' | '.join(unique_kws)} ({len(unique_kws)}개)")
+
+                    # ① 키워드별 쇼핑 클릭 지수 추이
                     fig_ins = px.line(df_ins,x="period",y="ratio",color="keyword",
-                                      title=f"쇼핑인사이트 클릭 트렌드 — {ins_cat_name}",
+                                      title=f"키워드별 쇼핑 클릭 지수 추이 — {ins_cat_name}",
                                       markers=True,
                                       labels={"period":"날짜","ratio":"클릭 지수(상대값)","keyword":"키워드"})
                     fig_ins.update_layout(hovermode="x unified")
                     st.plotly_chart(fig_ins,use_container_width=True)
                     st.info("💡 클릭 지수는 기간 내 최대 수치를 100으로 둔 상대적 지표입니다.")
 
-                    # 상세 통계
+                    # ② 키워드별 상세 분석 + ③ 최고 인기 시점 + ④ 최근 7일 변화율
                     sc1,sc2 = st.columns(2)
                     with sc1:
+                        st.markdown("**📈 키워드별 상세 분석**")
                         stats_ins=[]
-                        for kw in df_ins["keyword"].unique():
-                            r=df_ins[df_ins["keyword"]==kw]["ratio"]
-                            peak_row=df_ins[df_ins["keyword"]==kw].sort_values("ratio",ascending=False).iloc[0]
-                            stats_ins.append({"키워드":kw,"평균":round(r.mean(),1),"최대":round(r.max(),1),
-                                              "최소":round(r.min(),1),"변동성":round(r.std(),1),
-                                              "피크날짜":peak_row["period"].strftime("%Y-%m-%d")})
-                        st.dataframe(pd.DataFrame(stats_ins),use_container_width=True,hide_index=True)
+                        for kw in unique_kws:
+                            r = df_ins[df_ins["keyword"]==kw]["ratio"]
+                            peak_row = df_ins[df_ins["keyword"]==kw].sort_values("ratio",ascending=False).iloc[0]
+                            stats_ins.append({
+                                "키워드":kw,
+                                "평균 클릭지수":round(r.mean(),1),
+                                "최대 클릭지수":round(r.max(),1),
+                                "최소 클릭지수":round(r.min(),1),
+                                "변동성(표준편차)":round(r.std(),1),
+                            })
+                        df_stats = pd.DataFrame(stats_ins)
+                        st.dataframe(df_stats,use_container_width=True,hide_index=True)
+
+                        # 평균 클릭지수 바 차트
+                        fig_avg = px.bar(df_stats,x="키워드",y="평균 클릭지수",color="평균 클릭지수",
+                                         title="키워드별 평균 클릭 지수 비교",
+                                         text_auto=".1f",color_continuous_scale="Blues")
+                        st.plotly_chart(fig_avg,use_container_width=True)
+
                     with sc2:
+                        st.markdown("**🔥 키워드별 최고 인기 시점**")
+                        peak_data=[]
+                        for kw in unique_kws:
+                            kd = df_ins[df_ins["keyword"]==kw].sort_values("ratio",ascending=False)
+                            peak_data.append({"키워드":kw,"피크 날짜":kd.iloc[0]["period"].strftime("%Y-%m-%d"),"피크 지수":round(float(kd.iloc[0]["ratio"]),1)})
+                        st.dataframe(pd.DataFrame(peak_data),use_container_width=True,hide_index=True)
+
+                        # 최근 트렌드 변화
                         if len(df_ins)>=14:
+                            st.markdown("**📊 최근 트렌드 변화 (최근 7일 vs 이전 7일)**")
                             ch_data=[]
-                            for kw in df_ins["keyword"].unique():
+                            for kw in unique_kws:
                                 kd=df_ins[df_ins["keyword"]==kw].sort_values("period")
-                                r7=kd.tail(7)["ratio"].mean()
-                                p7=kd.tail(14).head(7)["ratio"].mean()
-                                ch=round((r7-p7)/p7*100,1) if p7>0 else 0
-                                ch_data.append({"키워드":kw,"최근7일":round(r7,1),"이전7일":round(p7,1),"변화율(%)":ch})
+                                if len(kd)>=14:
+                                    r7=kd.tail(7)["ratio"].mean()
+                                    p7=kd.tail(14).head(7)["ratio"].mean()
+                                    ch=round((r7-p7)/p7*100,1) if p7>0 else 0
+                                    ch_data.append({"키워드":kw,"최근7일":round(r7,1),"이전7일":round(p7,1),"변화율(%)":ch})
                             if ch_data:
-                                st.markdown("**📊 최근 7일 vs 이전 7일 변화율**")
                                 st.dataframe(pd.DataFrame(ch_data),use_container_width=True,hide_index=True)
 
                     st.download_button("📥 쇼핑인사이트 CSV",
                         data=df_ins.to_csv(index=False).encode("utf-8-sig"),
                         file_name=f"insight_{ins_cat_name}_{na_start}_{na_end}.csv",mime="text/csv")
 
-
-# TAB 6 — 상품 자동 등록
 # ══════════════════════════════════════════════════════════════
 with tab6:
     st.markdown("### 🛒 상품 자동 등록")
