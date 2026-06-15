@@ -15,7 +15,8 @@ import re as _re, time as _time, base64
 import streamlit as st
 import streamlit.components.v1 as components
 import sqlite3, pandas as pd, requests as req
-from datetime import datetime
+import plotly.express as px
+from datetime import datetime, timedelta
 from utils import calculate_target_price, calculate_expected_profit
 from database import init_db, upsert_tracked_product
 from domeme_client import DomeameClient
@@ -72,7 +73,10 @@ if NAV_ID and NAV_SECRET:
     try:
         from naver_client import NaverClient
         naver_client = NaverClient(NAV_ID, NAV_SECRET)
+        INSIGHT_CATS = NaverClient.INSIGHT_CATEGORIES
     except: pass
+else:
+    INSIGHT_CATS = {}
 
 coupang_client = None
 if CP_ACCESS and CP_SECRET and CP_VENDOR:
@@ -804,87 +808,402 @@ with tab4:
                 st.session_state["img_prompts"]={};  st.rerun()
 
 # ══════════════════════════════════════════════════════════════
-# TAB 5 — 시장 분석 (네이버 데이터랩 + 쿠팡)
+# ══════════════════════════════════════════════════════════════
+# TAB 5 — 시장 분석 (dashboard.py 기반)
 # ══════════════════════════════════════════════════════════════
 with tab5:
-    st.markdown("### 📊 시장 분석")
-    if not naver_client and not coupang_client:
-        st.warning("네이버 API 또는 쿠팡 API 키를 Secrets에 등록하세요.")
-        st.code("""# Streamlit Secrets 등록
-NAVER_CLIENT_ID     = "네이버 Client ID"
+    st.markdown("### 📊 네이버 시장 분석")
+
+    if not naver_client:
+        st.warning("NAVER_CLIENT_ID, NAVER_CLIENT_SECRET을 Secrets에 등록하세요.")
+        st.code("""NAVER_CLIENT_ID     = "네이버 Client ID"
 NAVER_CLIENT_SECRET = "네이버 Client Secret"
-COUPANG_ACCESS_KEY  = "쿠팡 Access Key"
-COUPANG_SECRET_KEY  = "쿠팡 Secret Key"
-COUPANG_VENDOR_ID   = "쿠팡 업체코드 (A로 시작)"
 """, language="toml")
-        st.info("네이버 API 발급: developers.naver.com → 애플리케이션 등록\n쿠팡 API 발급: Wing 로그인 → 업체정보 → Open API 키 발급")
+        st.info("발급: developers.naver.com → 애플리케이션 등록 → 검색 API + 데이터랩 API 추가 선택")
     else:
-        analysis_tab1,analysis_tab2=st.tabs(["🔍 네이버 시장 분석","🛒 쿠팡 시장 분석"])
+        # ── 사이드 설정 패널 ────────────────────────────────
+        with st.expander("🔧 분석 설정", expanded=True):
+            ec1, ec2 = st.columns(2)
+            with ec1:
+                na_kw_raw = st.text_input("분석 키워드 (쉼표 구분, 최대 5개)",
+                                          placeholder="예: 냉동딸기, 블루베리, 아사이베리",
+                                          key="na_kw_raw")
+                na_keywords = [k.strip() for k in na_kw_raw.split(",") if k.strip()][:5]
+                if na_keywords:
+                    st.caption(f"적용 키워드: {' | '.join(na_keywords)}")
+            with ec2:
+                today = datetime.now()
+                date_range = st.date_input(
+                    "분석 기간 직접 지정",
+                    value=(today - timedelta(days=90), today),
+                    max_value=today,
+                    key="na_date_range",
+                    help="시즌별 비교: 예) 여름 성수기 vs 비수기 직접 지정 가능"
+                )
+                if isinstance(date_range, tuple) and len(date_range) == 2:
+                    na_start = date_range[0].strftime("%Y-%m-%d")
+                    na_end   = date_range[1].strftime("%Y-%m-%d")
+                else:
+                    na_start = (today - timedelta(days=90)).strftime("%Y-%m-%d")
+                    na_end   = today.strftime("%Y-%m-%d")
+                    st.caption("시작일과 종료일 모두 선택해주세요.")
 
-        with analysis_tab1:
-            if not naver_client:
-                st.warning("NAVER_CLIENT_ID, NAVER_CLIENT_SECRET을 Secrets에 등록하세요.")
-            else:
-                st.markdown("#### 네이버 쇼핑 검색 + 데이터랩")
-                na_kw=st.text_input("분석할 키워드",placeholder="예: 냉동딸기, 텀블러",key="na_kw")
-                na_col1,na_col2=st.columns(2)
-                with na_col1: na_type=st.selectbox("검색 유형",["쇼핑","블로그","뉴스"])
-                with na_col2: na_period=st.selectbox("트렌드 기간",["1개월","3개월","6개월"])
-                period_map={"1개월":1,"3개월":3,"6개월":6}
+        if not na_keywords:
+            st.info("위에서 분석할 키워드를 입력하세요.")
+        else:
+            # 세션 키 초기화 헬퍼
+            for sk in ["na_shop_page","na_blog_page","na_news_page","na_cafe_page"]:
+                if sk not in st.session_state: st.session_state[sk] = 1
 
-                if st.button("📊 분석 시작",type="primary",use_container_width=True,disabled=(not na_kw)):
-                    with st.spinner("네이버 데이터 수집 중..."):
-                        if na_type=="쇼핑":
-                            results=naver_client.search_shopping(na_kw,display=20)
-                            if results:
-                                df_nv=pd.DataFrame(results)
-                                st.markdown(f"**쇼핑 검색 결과 ({len(results)}개)**")
-                                st.dataframe(df_nv[["title","mall_name","lprice","hprice","category1","category2"]].rename(
-                                    columns={"title":"상품명","mall_name":"쇼핑몰","lprice":"최저가","hprice":"최고가","category1":"대분류","category2":"중분류"}),
-                                    use_container_width=True,hide_index=True)
-                                if df_nv["lprice"].sum()>0:
-                                    avg_price=int(df_nv[df_nv["lprice"]>0]["lprice"].mean())
-                                    min_price=int(df_nv["lprice"].min())
-                                    st.metric("평균 최저가",f"{avg_price:,}원",f"최저 {min_price:,}원")
-                        elif na_type=="블로그":
-                            results=naver_client.search_blog(na_kw)
-                            for r in results[:5]:
-                                st.markdown(f"**[{r['title']}]({r['link']})**\n{r['description'][:100]}...\n{r['postdate']}")
+            # ── 서브탭 구성 (dashboard.py 기준) ────────────
+            nst1,nst2,nst3,nst4,nst5,nst6 = st.tabs([
+                "📈 트렌드 비교","🛍️ 실시간 쇼핑","📝 블로그","☕ 카페","📰 뉴스","📊 쇼핑인사이트"])
+
+            # ── NST1: 트렌드 비교 ──────────────────────────
+            with nst1:
+                st.markdown(f"#### 📈 검색어 트렌드 ({na_start} ~ {na_end})")
+                tc1,tc2 = st.columns(2)
+                with tc1:
+                    analysis_mode = st.radio("분석 모드",["일반 트렌드","성별 비교"],horizontal=True,key="na_mode")
+                with tc2:
+                    time_unit_map = {"일별":"date","주별":"week","월별":"month"}
+                    time_unit_sel = st.selectbox("집계 단위",list(time_unit_map.keys()),key="na_tu")
+                    na_time_unit  = time_unit_map[time_unit_sel]
+
+                # 성별/연령 필터
+                fc1,fc2 = st.columns(2)
+                with fc1:
+                    gender_opt = ""
+                    if analysis_mode == "일반 트렌드":
+                        g_sel = st.radio("성별",["전체","남성","여성"],horizontal=True,key="na_gender")
+                        gender_opt = {"전체":"","남성":"m","여성":"f"}[g_sel]
+                with fc2:
+                    age_options  = ["0~12세","13~18세","19~24세","25~29세","30~34세","35~39세","40~44세","45~49세","50~54세","55~59세","60세 이상"]
+                    age_codes    = [str(i+1) for i in range(11)]
+                    age_ref      = dict(zip(age_options,age_codes))
+                    sel_ages     = st.multiselect("연령대",age_options,placeholder="전체 연령",key="na_ages")
+                    sel_age_codes= [age_ref[a] for a in sel_ages]
+
+                if st.button("📊 트렌드 분석 실행",type="primary",use_container_width=True,key="na_trend_btn"):
+                    with st.spinner("데이터 수집 중..."):
+                        if analysis_mode == "일반 트렌드":
+                            df_trend = naver_client.datalab_trend(na_keywords,na_start,na_end,na_time_unit,gender_opt,sel_age_codes)
+                            st.session_state["na_trend_df"] = df_trend
+                            st.session_state["na_trend_mode"] = "일반"
                         else:
-                            results=naver_client.search_news(na_kw)
-                            for r in results[:5]:
-                                st.markdown(f"**[{r['title']}]({r['link']})**\n{r['description'][:100]}...\n{r['pubDate']}")
+                            df_m = naver_client.datalab_trend(na_keywords,na_start,na_end,na_time_unit,"m",sel_age_codes)
+                            df_f = naver_client.datalab_trend(na_keywords,na_start,na_end,na_time_unit,"f",sel_age_codes)
+                            if not df_m.empty: df_m["gender"] = "남성"
+                            if not df_f.empty: df_f["gender"] = "여성"
+                            parts = [d for d in [df_m,df_f] if not d.empty]
+                            df_trend = pd.concat(parts) if parts else pd.DataFrame()
+                            st.session_state["na_trend_df"] = df_trend
+                            st.session_state["na_trend_mode"] = "성별"
 
-                        # 데이터랩 트렌드
-                        st.markdown("**📈 검색어 트렌드 (데이터랩)**")
-                        trend=naver_client.datalab_trend([na_kw],period_months=period_map[na_period])
-                        results_t=trend.get("results",[])
-                        if results_t:
-                            data_pts=results_t[0].get("data",[])
-                            if data_pts:
-                                df_trend=pd.DataFrame(data_pts)
-                                df_trend.columns=["날짜","검색량(상대값)"]
-                                st.line_chart(df_trend.set_index("날짜"))
-                        else:
-                            st.info("트렌드 데이터를 가져오지 못했습니다.")
+                df_t = st.session_state.get("na_trend_df", pd.DataFrame())
+                mode_t = st.session_state.get("na_trend_mode","일반")
+                if not df_t.empty:
+                    df_t["period"] = pd.to_datetime(df_t["period"])
+                    st.info(f"총 {len(df_t):,}개 데이터 포인트 분석")
 
-        with analysis_tab2:
-            if not coupang_client:
-                st.warning("COUPANG_ACCESS_KEY, COUPANG_SECRET_KEY, COUPANG_VENDOR_ID를 Secrets에 등록하세요.")
-            else:
-                st.markdown("#### 쿠팡 상품 조회")
-                st.info("쿠팡 Open API는 자사 등록 상품 조회 및 주문 관리 기능을 제공합니다.")
-                if st.button("📦 오늘 신규 주문 확인",use_container_width=True):
-                    with st.spinner("쿠팡 발주서 조회 중..."):
-                        orders=coupang_client.get_orders(status="ACCEPT")
-                    if orders:
-                        df_ord=pd.DataFrame(orders)
-                        st.success(f"신규 주문 {len(orders)}건")
-                        st.dataframe(df_ord,use_container_width=True,hide_index=True)
+                    if mode_t == "일반":
+                        fig = px.line(df_t,x="period",y="ratio",color="keyword",
+                                      title="실시간 검색 트렌드 추이",markers=True,
+                                      labels={"period":"날짜","ratio":"검색 지수(상대값)","keyword":"키워드"})
                     else:
-                        st.info("신규 주문 없음")
+                        fig = px.line(df_t,x="period",y="ratio",color="keyword",facet_col="gender",
+                                      title="성별 검색 트렌드 비교",markers=True,
+                                      labels={"period":"날짜","ratio":"검색 지수","keyword":"키워드"})
+                        fig.for_each_annotation(lambda a:a.update(text=a.text.split("=")[-1]))
+                    fig.update_layout(hovermode="x unified")
+                    st.plotly_chart(fig,use_container_width=True)
 
-# ══════════════════════════════════════════════════════════════
+                    # 피크 & 통계 테이블
+                    tc1,tc2 = st.columns(2)
+                    with tc1:
+                        st.markdown("**🔥 키워드별 피크 시점**")
+                        peak_data=[]
+                        for kw in df_t["keyword"].unique():
+                            kd = df_t[df_t["keyword"]==kw].sort_values("period")
+                            peak_row = kd.sort_values("ratio",ascending=False).iloc[0]
+                            r7 = kd.tail(7)["ratio"].mean()
+                            avg = kd["ratio"].mean()
+                            peak_data.append({"키워드":kw,"피크날짜":peak_row["period"].strftime("%Y-%m-%d"),
+                                              "피크지수":round(float(peak_row["ratio"]),1),
+                                              "최근7일평균":round(r7,1),
+                                              "전체대비(%)":round((r7-avg)/avg*100,1) if avg>0 else 0})
+                        st.dataframe(pd.DataFrame(peak_data),use_container_width=True,hide_index=True)
+                    with tc2:
+                        st.markdown("**📊 기술 통계**")
+                        stats=[]
+                        for kw in df_t["keyword"].unique():
+                            r=df_t[df_t["keyword"]==kw]["ratio"]
+                            stats.append({"키워드":kw,"평균":round(r.mean(),1),"최솟값":round(r.min(),1),
+                                          "최댓값":round(r.max(),1),"표준편차":round(r.std(),1)})
+                        st.dataframe(pd.DataFrame(stats),use_container_width=True,hide_index=True)
+
+                    st.download_button("📥 트렌드 CSV 다운로드",
+                        data=df_t.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"trend_{na_start}_{na_end}.csv",mime="text/csv")
+
+            # ── NST2: 실시간 쇼핑 ─────────────────────────
+            with nst2:
+                st.markdown("#### 🛍️ 네이버 쇼핑 실시간 분석")
+                sh_col1,sh_col2,sh_col3 = st.columns(3)
+                with sh_col1:
+                    sh_sort = st.selectbox("정렬",["정확도순(sim)","최신순(date)","가격낮은순(asc)","가격높은순(dsc)"],key="sh_sort")
+                    sh_sort_val = sh_sort.split("(")[1].rstrip(")")
+                with sh_col2:
+                    sh_kw_filter = st.selectbox("키워드 필터",["전체"]+na_keywords,key="sh_kw_filter")
+                with sh_col3:
+                    sh_view = st.radio("보기 방식",["카드(4열)","리스트"],horizontal=True,key="sh_view")
+
+                if st.button("🔍 쇼핑 검색 실행",type="primary",use_container_width=True,key="sh_btn"):
+                    with st.spinner("쇼핑 데이터 수집 중..."):
+                        df_shop = naver_client.search_shopping(na_keywords,display=100,page=1,sort=sh_sort_val)
+                    st.session_state["na_shop_df"] = df_shop
+                    st.session_state["na_shop_page"] = 1
+
+                df_s = st.session_state.get("na_shop_df", pd.DataFrame())
+                if not df_s.empty:
+                    # 키워드 필터
+                    if sh_kw_filter != "전체":
+                        disp_s = df_s[df_s["search_keyword"]==sh_kw_filter].copy()
+                    else:
+                        disp_s = df_s.copy()
+
+                    m1,m2,m3 = st.columns(3)
+                    m1.metric("수집 상품",f"{len(disp_s)}개")
+                    m2.metric("평균가",f"{int(disp_s['lprice'].mean()):,}원" if disp_s['lprice'].sum()>0 else "-")
+                    m3.metric("활성 판매처",f"{disp_s['mall_name'].nunique()}개")
+
+                    # 가격 분포 차트
+                    ch1,ch2 = st.columns(2)
+                    with ch1:
+                        if disp_s["lprice"].sum()>0:
+                            fig_box = px.box(disp_s,x="search_keyword",y="lprice",color="search_keyword",
+                                             title="키워드별 가격 분포",
+                                             labels={"lprice":"최저가(원)","search_keyword":"키워드"})
+                            st.plotly_chart(fig_box,use_container_width=True)
+                    with ch2:
+                        mall_cnt = disp_s["mall_name"].value_counts().head(10).reset_index()
+                        mall_cnt.columns = ["판매처","상품수"]
+                        fig_mall = px.bar(mall_cnt,x="상품수",y="판매처",orientation="h",
+                                          title="판매처별 상품 노출 TOP10",color="상품수",
+                                          color_continuous_scale="Blues")
+                        st.plotly_chart(fig_mall,use_container_width=True)
+
+                    st.divider()
+                    st.markdown(f"**상품 목록 (총 {len(disp_s)}개)**")
+
+                    # 페이징
+                    PAGE_SIZE = 12 if "카드" in sh_view else 20
+                    total_pages = max(1,(len(disp_s)-1)//PAGE_SIZE+1)
+                    pg = st.session_state.get("na_shop_page",1)
+                    pg = min(pg,total_pages)
+                    page_df = disp_s.iloc[(pg-1)*PAGE_SIZE:pg*PAGE_SIZE]
+
+                    # 페이지 컨트롤
+                    pn1,pn2,pn3 = st.columns([1,3,1])
+                    with pn1:
+                        if st.button("이전",key="sh_prev",disabled=(pg<=1)):
+                            st.session_state["na_shop_page"]=pg-1; st.rerun()
+                    with pn2:
+                        st.markdown(f"<div style='text-align:center;padding-top:.5rem'>{pg}/{total_pages} | 총 {len(disp_s)}개</div>",unsafe_allow_html=True)
+                    with pn3:
+                        if st.button("다음",key="sh_next",disabled=(pg>=total_pages)):
+                            st.session_state["na_shop_page"]=pg+1; st.rerun()
+
+                    if "카드" in sh_view:
+                        # 4열 카드 뷰 (이미지 클릭 → 쇼핑몰 이동)
+                        for i in range(0,len(page_df),4):
+                            cols=st.columns(4)
+                            for ci,(_,row) in enumerate(page_df.iloc[i:i+4].iterrows()):
+                                with cols[ci]:
+                                    if row.get("image") and str(row["image"]).startswith("http"):
+                                        st.markdown(
+                                            f'<a href="{row["link"]}" target="_blank">'
+                                            f'<img src="{row["image"]}" style="width:100%;border-radius:8px;'
+                                            f'cursor:pointer;margin-bottom:6px"/></a>',
+                                            unsafe_allow_html=True)
+                                    st.markdown(f'<div style="font-size:.82rem;font-weight:500;'
+                                                f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'
+                                                f'<a href="{row["link"]}" target="_blank" style="color:#1e293b;text-decoration:none">'
+                                                f'{row["title"][:28]}</a></div>',unsafe_allow_html=True)
+                                    st.markdown(f'<div style="font-size:.85rem;color:#2563eb;font-weight:700">{int(row["lprice"]):,}원</div>',unsafe_allow_html=True)
+                                    st.caption(f"🏪 {row['mall_name']} | {row['search_keyword']}")
+                    else:
+                        # 리스트 뷰
+                        for _,row in page_df.iterrows():
+                            lc1,lc2 = st.columns([1,4])
+                            with lc1:
+                                if row.get("image") and str(row["image"]).startswith("http"):
+                                    st.markdown(f'<a href="{row["link"]}" target="_blank"><img src="{row["image"]}" style="width:100%;border-radius:6px"/></a>',unsafe_allow_html=True)
+                            with lc2:
+                                st.markdown(f"**[{row['title']}]({row['link']})**")
+                                ic1,ic2=st.columns(2)
+                                ic1.write(f"💰 최저가: **{int(row['lprice']):,}원**")
+                                ic2.write(f"📁 카테고리: {row['category1']}")
+                                st.write(f"🏪 판매처: {row['mall_name']} | 🔑 {row['search_keyword']}")
+                            st.divider()
+
+                    st.download_button("📥 쇼핑 CSV 다운로드",
+                        data=df_s.to_csv(index=False).encode("utf-8-sig"),
+                        file_name="naver_shopping.csv",mime="text/csv")
+
+            # ── NST3: 블로그 ───────────────────────────────
+            with nst3:
+                st.markdown("#### 📝 실시간 블로그 분석")
+                if st.button("🔍 블로그 검색",type="primary",use_container_width=True,key="blog_btn"):
+                    with st.spinner("블로그 데이터 수집 중..."):
+                        df_blog = naver_client.search_blog(na_keywords,display=100)
+                    st.session_state["na_blog_df"] = df_blog
+                    st.session_state["na_blog_page"] = 1
+
+                df_bl = st.session_state.get("na_blog_df",pd.DataFrame())
+                if not df_bl.empty:
+                    st.info(f"총 {len(df_bl)}건 수집")
+                    # 키워드별 건수 차트
+                    cnt = df_bl["search_keyword"].value_counts().reset_index()
+                    cnt.columns=["키워드","건수"]
+                    st.plotly_chart(px.bar(cnt,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수"),use_container_width=True)
+                    # 페이징 목록
+                    pg_bl = st.session_state.get("na_blog_page",1)
+                    total_bl = max(1,(len(df_bl)-1)//20+1)
+                    pg_bl = min(pg_bl,total_bl)
+                    pn1,pn2,pn3=st.columns([1,3,1])
+                    with pn1:
+                        if st.button("이전",key="bl_prev",disabled=(pg_bl<=1)):
+                            st.session_state["na_blog_page"]=pg_bl-1; st.rerun()
+                    with pn2: st.markdown(f"<div style='text-align:center;padding-top:.5rem'>{pg_bl}/{total_bl}</div>",unsafe_allow_html=True)
+                    with pn3:
+                        if st.button("다음",key="bl_next",disabled=(pg_bl>=total_bl)):
+                            st.session_state["na_blog_page"]=pg_bl+1; st.rerun()
+                    for _,row in df_bl.iloc[(pg_bl-1)*20:pg_bl*20].iterrows():
+                        st.markdown(f"**[{row['title']}]({row['link']})**")
+                        st.caption(f"{row['description'][:120]}... | {row.get('postdate','')} | {row['search_keyword']}")
+                        st.divider()
+
+            # ── NST4: 카페 ──────────────────────────────────
+            with nst4:
+                st.markdown("#### ☕ 실시간 카페 분석")
+                if st.button("🔍 카페 검색",type="primary",use_container_width=True,key="cafe_btn"):
+                    with st.spinner("카페 데이터 수집 중..."):
+                        df_cafe = naver_client.search_cafe(na_keywords,display=100)
+                    st.session_state["na_cafe_df"] = df_cafe
+                    st.session_state["na_cafe_page"] = 1
+
+                df_ca = st.session_state.get("na_cafe_df",pd.DataFrame())
+                if not df_ca.empty:
+                    st.info(f"총 {len(df_ca)}건 수집")
+                    cnt_ca = df_ca["search_keyword"].value_counts().reset_index()
+                    cnt_ca.columns=["키워드","건수"]
+                    st.plotly_chart(px.bar(cnt_ca,x="키워드",y="건수",color="키워드",title="키워드별 카페 포스팅 수"),use_container_width=True)
+                    pg_ca = st.session_state.get("na_cafe_page",1)
+                    total_ca = max(1,(len(df_ca)-1)//20+1)
+                    pg_ca = min(pg_ca,total_ca)
+                    pn1,pn2,pn3=st.columns([1,3,1])
+                    with pn1:
+                        if st.button("이전",key="ca_prev",disabled=(pg_ca<=1)):
+                            st.session_state["na_cafe_page"]=pg_ca-1; st.rerun()
+                    with pn2: st.markdown(f"<div style='text-align:center;padding-top:.5rem'>{pg_ca}/{total_ca}</div>",unsafe_allow_html=True)
+                    with pn3:
+                        if st.button("다음",key="ca_next",disabled=(pg_ca>=total_ca)):
+                            st.session_state["na_cafe_page"]=pg_ca+1; st.rerun()
+                    for _,row in df_ca.iloc[(pg_ca-1)*20:pg_ca*20].iterrows():
+                        st.markdown(f"**[{row['title']}]({row['link']})**")
+                        st.caption(f"{row['description'][:120]}... | 카페: {row.get('cafename','')} | {row['search_keyword']}")
+                        st.divider()
+
+            # ── NST5: 뉴스 ──────────────────────────────────
+            with nst5:
+                st.markdown("#### 📰 실시간 뉴스 분석")
+                if st.button("🔍 뉴스 검색",type="primary",use_container_width=True,key="news_btn"):
+                    with st.spinner("뉴스 데이터 수집 중..."):
+                        df_news = naver_client.search_news(na_keywords,display=100)
+                    st.session_state["na_news_df"] = df_news
+                    st.session_state["na_news_page"] = 1
+
+                df_nw = st.session_state.get("na_news_df",pd.DataFrame())
+                if not df_nw.empty:
+                    st.info(f"총 {len(df_nw)}건 수집")
+                    cnt_nw = df_nw["search_keyword"].value_counts().reset_index()
+                    cnt_nw.columns=["키워드","건수"]
+                    st.plotly_chart(px.bar(cnt_nw,x="키워드",y="건수",color="키워드",title="키워드별 뉴스 건수"),use_container_width=True)
+                    pg_nw = st.session_state.get("na_news_page",1)
+                    total_nw = max(1,(len(df_nw)-1)//20+1)
+                    pg_nw = min(pg_nw,total_nw)
+                    pn1,pn2,pn3=st.columns([1,3,1])
+                    with pn1:
+                        if st.button("이전",key="nw_prev",disabled=(pg_nw<=1)):
+                            st.session_state["na_news_page"]=pg_nw-1; st.rerun()
+                    with pn2: st.markdown(f"<div style='text-align:center;padding-top:.5rem'>{pg_nw}/{total_nw}</div>",unsafe_allow_html=True)
+                    with pn3:
+                        if st.button("다음",key="nw_next",disabled=(pg_nw>=total_nw)):
+                            st.session_state["na_news_page"]=pg_nw+1; st.rerun()
+                    for _,row in df_nw.iloc[(pg_nw-1)*20:pg_nw*20].iterrows():
+                        st.markdown(f"**[{row['title']}]({row['link']})**")
+                        st.caption(f"{row['description'][:120]}... | {row.get('pubDate','')[:16]} | {row['search_keyword']}")
+                        st.divider()
+
+            # ── NST6: 쇼핑인사이트 ─────────────────────────
+            with nst6:
+                st.markdown("#### 📊 쇼핑인사이트 — 카테고리 키워드 클릭 트렌드")
+                ins_col1,ins_col2 = st.columns(2)
+                with ins_col1:
+                    ins_cat_name = st.selectbox("쇼핑 카테고리",list(INSIGHT_CATS.keys()) if INSIGHT_CATS else ["식품"],key="ins_cat")
+                    ins_cat_id   = INSIGHT_CATS.get(ins_cat_name,"50000005")
+                with ins_col2:
+                    ins_tu_map = {"일별":"date","주별":"week","월별":"month"}
+                    ins_tu_sel = st.selectbox("집계 단위",list(ins_tu_map.keys()),key="ins_tu")
+                    ins_tu     = ins_tu_map[ins_tu_sel]
+
+                if st.button("📊 쇼핑인사이트 분석",type="primary",use_container_width=True,key="ins_btn"):
+                    with st.spinner("쇼핑인사이트 데이터 수집 중..."):
+                        df_ins = naver_client.datalab_shopping_insight(
+                            ins_cat_id, na_keywords, na_start, na_end, ins_tu)
+                    st.session_state["na_ins_df"] = df_ins
+
+                df_ins = st.session_state.get("na_ins_df", pd.DataFrame())
+                if not df_ins.empty:
+                    df_ins["period"] = pd.to_datetime(df_ins["period"])
+                    fig_ins = px.line(df_ins,x="period",y="ratio",color="keyword",
+                                      title=f"쇼핑인사이트 클릭 트렌드 — {ins_cat_name}",
+                                      markers=True,
+                                      labels={"period":"날짜","ratio":"클릭 지수(상대값)","keyword":"키워드"})
+                    fig_ins.update_layout(hovermode="x unified")
+                    st.plotly_chart(fig_ins,use_container_width=True)
+                    st.info("💡 클릭 지수는 기간 내 최대 수치를 100으로 둔 상대적 지표입니다.")
+
+                    # 상세 통계
+                    sc1,sc2 = st.columns(2)
+                    with sc1:
+                        stats_ins=[]
+                        for kw in df_ins["keyword"].unique():
+                            r=df_ins[df_ins["keyword"]==kw]["ratio"]
+                            peak_row=df_ins[df_ins["keyword"]==kw].sort_values("ratio",ascending=False).iloc[0]
+                            stats_ins.append({"키워드":kw,"평균":round(r.mean(),1),"최대":round(r.max(),1),
+                                              "최소":round(r.min(),1),"변동성":round(r.std(),1),
+                                              "피크날짜":peak_row["period"].strftime("%Y-%m-%d")})
+                        st.dataframe(pd.DataFrame(stats_ins),use_container_width=True,hide_index=True)
+                    with sc2:
+                        if len(df_ins)>=14:
+                            ch_data=[]
+                            for kw in df_ins["keyword"].unique():
+                                kd=df_ins[df_ins["keyword"]==kw].sort_values("period")
+                                r7=kd.tail(7)["ratio"].mean()
+                                p7=kd.tail(14).head(7)["ratio"].mean()
+                                ch=round((r7-p7)/p7*100,1) if p7>0 else 0
+                                ch_data.append({"키워드":kw,"최근7일":round(r7,1),"이전7일":round(p7,1),"변화율(%)":ch})
+                            if ch_data:
+                                st.markdown("**📊 최근 7일 vs 이전 7일 변화율**")
+                                st.dataframe(pd.DataFrame(ch_data),use_container_width=True,hide_index=True)
+
+                    st.download_button("📥 쇼핑인사이트 CSV",
+                        data=df_ins.to_csv(index=False).encode("utf-8-sig"),
+                        file_name=f"insight_{ins_cat_name}_{na_start}_{na_end}.csv",mime="text/csv")
+
+
 # TAB 6 — 상품 자동 등록
 # ══════════════════════════════════════════════════════════════
 with tab6:

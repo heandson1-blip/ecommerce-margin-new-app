@@ -1,145 +1,125 @@
 """
-naver_client.py — 네이버 API 클라이언트
-- 검색 API: 쇼핑, 블로그, 뉴스
-- 데이터랩 API: 검색어 트렌드, 쇼핑인사이트
-Secrets: NAVER_CLIENT_ID, NAVER_CLIENT_SECRET
+naver_client.py v2 — 네이버 API 클라이언트
+쇼핑/블로그/뉴스/카페 검색: display=100 (최대), 페이징 지원
+데이터랩 검색어 트렌드 (성별/연령 필터)
+쇼핑인사이트 (카테고리 키워드 클릭 트렌드)
 """
-import requests
-from datetime import datetime, timedelta
+import requests, json
+import pandas as pd
 
 
 class NaverClient:
-    SEARCH_BASE = "https://openapi.naver.com/v1/search"
+    SEARCH_BASE  = "https://openapi.naver.com/v1/search"
     DATALAB_BASE = "https://openapi.naver.com/v1/datalab"
 
     def __init__(self, client_id: str, client_secret: str):
         self.headers = {
-            "X-Naver-Client-Id": client_id,
+            "X-Naver-Client-Id":     client_id,
             "X-Naver-Client-Secret": client_secret,
-            "Content-Type": "application/json",
+            "Content-Type":          "application/json",
         }
-        self.client_id = client_id
 
-    def _get(self, url, params):
+    def _get(self, path, params):
         try:
-            r = requests.get(url, headers=self.headers, params=params, timeout=10)
-            if r.status_code == 200:
-                return r.json()
+            r = requests.get(f"{self.SEARCH_BASE}/{path}",
+                             headers=self.headers, params=params, timeout=12)
+            if r.status_code == 200: return r.json()
             print(f"[네이버] {r.status_code}: {r.text[:200]}")
-        except Exception as e:
-            print(f"[네이버] 오류: {e}")
+        except Exception as e: print(f"[네이버 오류] {e}")
         return {}
 
     def _post(self, url, body):
         try:
-            r = requests.post(url, headers=self.headers, json=body, timeout=10)
-            if r.status_code == 200:
-                return r.json()
+            r = requests.post(url, headers=self.headers,
+                              data=json.dumps(body), timeout=12)
+            if r.status_code == 200: return r.json()
             print(f"[네이버] {r.status_code}: {r.text[:200]}")
-        except Exception as e:
-            print(f"[네이버] 오류: {e}")
+        except Exception as e: print(f"[네이버 오류] {e}")
         return {}
 
-    # ── 쇼핑 검색 ────────────────────────────────────────────
-    def search_shopping(self, query: str, display: int = 20, sort: str = "sim") -> list[dict]:
-        """
-        네이버 쇼핑 검색
-        sort: sim(정확도) | date(날짜) | asc(가격낮은순) | dsc(가격높은순)
-        """
-        data = self._get(f"{self.SEARCH_BASE}/shop.json",
-                         {"query": query, "display": display, "sort": sort})
-        items = data.get("items", [])
-        results = []
-        for item in items:
-            results.append({
-                "title":      item.get("title","").replace("<b>","").replace("</b>",""),
-                "link":       item.get("link",""),
-                "image":      item.get("image",""),
-                "lprice":     int(item.get("lprice", 0)),
-                "hprice":     int(item.get("hprice", 0)) if item.get("hprice") else 0,
-                "mall_name":  item.get("mallName",""),
-                "product_id": item.get("productId",""),
-                "category1":  item.get("category1",""),
-                "category2":  item.get("category2",""),
-            })
-        return results
+    @staticmethod
+    def _clean(text):
+        if not text: return ""
+        return (text.replace("<b>","").replace("</b>","")
+                    .replace("&quot;",'"').replace("&lt;","<")
+                    .replace("&gt;",">").replace("&amp;","&"))
 
-    # ── 블로그 검색 ──────────────────────────────────────────
-    def search_blog(self, query: str, display: int = 10) -> list[dict]:
-        data = self._get(f"{self.SEARCH_BASE}/blog.json",
-                         {"query": query, "display": display, "sort": "sim"})
-        return [{"title": i.get("title","").replace("<b>","").replace("</b>",""),
-                 "link": i.get("link",""),
-                 "description": i.get("description","").replace("<b>","").replace("</b>",""),
-                 "postdate": i.get("postdate","")}
-                for i in data.get("items", [])]
+    def search_shopping(self, keywords, display=100, page=1, sort="sim"):
+        """쇼핑 검색 — 최대 100개, 페이지 지원"""
+        display = min(display, 100)
+        start   = (page - 1) * display + 1
+        rows = []
+        for kw in keywords:
+            data = self._get("shop.json", {"query":kw,"display":display,"start":start,"sort":sort})
+            for item in data.get("items",[]):
+                rows.append({
+                    "search_keyword": kw,
+                    "title":    self._clean(item.get("title","")),
+                    "link":     item.get("link",""),
+                    "image":    item.get("image",""),
+                    "lprice":   int(item.get("lprice",0)) if item.get("lprice") else 0,
+                    "mall_name": item.get("mallName",""),
+                    "product_id": item.get("productId",""),
+                    "category1": item.get("category1",""),
+                    "category2": item.get("category2",""),
+                })
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-    # ── 뉴스 검색 ────────────────────────────────────────────
-    def search_news(self, query: str, display: int = 10) -> list[dict]:
-        data = self._get(f"{self.SEARCH_BASE}/news.json",
-                         {"query": query, "display": display, "sort": "date"})
-        return [{"title": i.get("title","").replace("<b>","").replace("</b>",""),
-                 "link": i.get("originallink", i.get("link","")),
-                 "description": i.get("description","").replace("<b>","").replace("</b>",""),
-                 "pubDate": i.get("pubDate","")}
-                for i in data.get("items", [])]
+    def search_blog(self, keywords, display=100, page=1):
+        start = (page-1)*min(display,100)+1
+        rows=[]
+        for kw in keywords:
+            data=self._get("blog.json",{"query":kw,"display":min(display,100),"start":start,"sort":"date"})
+            for item in data.get("items",[]):
+                rows.append({"search_keyword":kw,"title":self._clean(item.get("title","")),"link":item.get("link",""),"description":self._clean(item.get("description","")),"postdate":item.get("postdate","")})
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-    # ── 데이터랩: 검색어 트렌드 ─────────────────────────────
-    def datalab_trend(self, keywords: list[str], period_months: int = 3) -> dict:
-        """
-        네이버 데이터랩 검색어 트렌드
-        keywords: 비교할 키워드 리스트 (최대 5개 그룹, 각 그룹 최대 5개 키워드)
-        """
-        end   = datetime.now()
-        start = end - timedelta(days=period_months * 30)
+    def search_news(self, keywords, display=100, page=1):
+        start=(page-1)*min(display,100)+1
+        rows=[]
+        for kw in keywords:
+            data=self._get("news.json",{"query":kw,"display":min(display,100),"start":start,"sort":"date"})
+            for item in data.get("items",[]):
+                rows.append({"search_keyword":kw,"title":self._clean(item.get("title","")),"link":item.get("originallink",item.get("link","")),"description":self._clean(item.get("description","")),"pubDate":item.get("pubDate","")})
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-        keyword_groups = []
-        for kw in keywords[:5]:
-            keyword_groups.append({"groupName": kw, "keywords": [kw]})
+    def search_cafe(self, keywords, display=100, page=1):
+        start=(page-1)*min(display,100)+1
+        rows=[]
+        for kw in keywords:
+            data=self._get("cafearticle.json",{"query":kw,"display":min(display,100),"start":start,"sort":"date"})
+            for item in data.get("items",[]):
+                rows.append({"search_keyword":kw,"title":self._clean(item.get("title","")),"link":item.get("link",""),"description":self._clean(item.get("description","")),"cafename":item.get("cafename","")})
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
 
-        body = {
-            "startDate": start.strftime("%Y-%m-%d"),
-            "endDate":   end.strftime("%Y-%m-%d"),
-            "timeUnit":  "week",
-            "keywordGroups": keyword_groups,
-        }
-        return self._post(f"{self.DATALAB_BASE}/search", body)
+    def datalab_trend(self, keywords, start_date, end_date, time_unit="date", gender="", ages=None):
+        """데이터랩 검색어 트렌드 (성별/연령 필터 지원)"""
+        body={"startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
+              "keywordGroups":[{"groupName":k,"keywords":[k]} for k in keywords[:5]]}
+        if gender: body["gender"]=gender
+        if ages:   body["ages"]=ages
+        data=self._post(f"{self.DATALAB_BASE}/search",body)
+        results=data.get("results",[])
+        if not results: return pd.DataFrame()
+        dfs=[pd.DataFrame(r["data"]).assign(keyword=r["title"]) for r in results if r.get("data")]
+        return pd.concat(dfs) if dfs else pd.DataFrame()
 
-    # ── 데이터랩: 쇼핑인사이트 카테고리 트렌드 ─────────────
-    def datalab_shopping_category(self, category_name: str, category_param: str,
-                                   period_months: int = 3) -> dict:
-        """
-        네이버 쇼핑인사이트 — 카테고리 트렌드
-        category_param: 네이버 쇼핑 카테고리 코드 (예: "50000000" 패션의류)
-        """
-        end   = datetime.now()
-        start = end - timedelta(days=period_months * 30)
-        body = {
-            "startDate": start.strftime("%Y-%m-%d"),
-            "endDate":   end.strftime("%Y-%m-%d"),
-            "timeUnit":  "week",
-            "category":  [{"name": category_name, "param": [category_param]}],
-            "device":    "mo",
-            "gender":    "",
-            "ages":      [],
-        }
-        return self._post(f"{self.DATALAB_BASE}/shopping/categories", body)
+    def datalab_shopping_insight(self, category_id, keywords, start_date, end_date, time_unit="date"):
+        """쇼핑인사이트 카테고리 내 키워드 클릭 트렌드"""
+        body={"startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
+              "category":category_id,"keyword":[{"name":k,"param":[k]} for k in keywords[:5]]}
+        data=self._post(f"{self.DATALAB_BASE}/shopping/category/keywords",body)
+        results=data.get("results",[])
+        if not results: return pd.DataFrame()
+        dfs=[]
+        for r in results:
+            if r.get("data"):
+                df=pd.DataFrame(r["data"]); df["keyword"]=r["title"]; dfs.append(df)
+        return pd.concat(dfs) if dfs else pd.DataFrame()
 
-    # ── 데이터랩: 쇼핑인사이트 키워드 트렌드 ───────────────
-    def datalab_shopping_keyword(self, category_param: str,
-                                  keywords: list[str], period_months: int = 3) -> dict:
-        """쇼핑인사이트 — 특정 카테고리 내 키워드 클릭 트렌드"""
-        end   = datetime.now()
-        start = end - timedelta(days=period_months * 30)
-        kw_list = [{"name": kw, "param": [kw]} for kw in keywords[:5]]
-        body = {
-            "startDate": start.strftime("%Y-%m-%d"),
-            "endDate":   end.strftime("%Y-%m-%d"),
-            "timeUnit":  "week",
-            "category":  category_param,
-            "keyword":   kw_list,
-            "device":    "",
-            "gender":    "",
-            "ages":      [],
-        }
-        return self._post(f"{self.DATALAB_BASE}/shopping/keywords", body)
+    INSIGHT_CATEGORIES = {
+        "패션의류":"50000000","패션잡화":"50000001","화장품/미용":"50000002",
+        "디지털/가전":"50000003","가구/인테리어":"50000004","식품":"50000005",
+        "스포츠/레저":"50000006","생활/건강":"50000007","여행/문화":"50000008",
+        "출산/육아":"50000009","반려동물":"50000010",
+    }
