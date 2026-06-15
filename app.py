@@ -334,41 +334,70 @@ def kw_gen(prod,feat,platforms):
     return gemini(prompt,2000)
 
 def gen_img_prompt(spec,brand,features,target,category,image_b64=""):
-    """이미지 1개 프롬프트 생성 — 상품 이미지 업로드 시 Vision API 사용"""
-    base_prompt=f"""Generate ONE DALL-E 3 prompt for Naver Smartstore detail page Image {spec['no']}.
-
-Product: {brand} ({category})
-Target: {target}
-Features: {features}
-Image: {spec['stage']} ({spec['kr']}) — Size: 860×{spec['h']}px
-
-Blueprint v9.1 Rules:
-- Top 40% MUST be flat solid single-color background (no textures, no objects)
-- No text rendered in image (text overlay added in post-production)
-- Photorealistic commercial photography, mobile-first single focal point
-- No fake reviews/ratings/certifications
-- No competitor brand names
-- v9.1 Conversion fix: include price anchor / urgency / quantified benefit element
-
-Output format:
-메인 카피 (한국어 15-25자):
-서브 카피 (한국어 1-2문장):
-전환율 강화 요소:
-법적 안전 확인: (과장/허위 없음)
-DALL-E 3 Prompt:
-Photorealistic commercial photography, {spec['stage'].lower()} style, {brand} product,"""
-
+    """이미지 1개 DALL-E 3 프롬프트 생성 (품질 개선판 v9.1)"""
+    pkg_desc = ""
     if image_b64:
-        vision_prompt=(base_prompt+
-            "\n\nIMPORTANT: Analyze the uploaded product image carefully. "
-            "Describe the exact packaging shape, color palette, label design, and material. "
-            "Incorporate these visual elements precisely into the DALL-E 3 prompt so the "
-            "generated image maintains brand consistency with the actual product.")
-        result=gemini_vision(vision_prompt,image_b64,max_tok=900)
-    else:
-        result=gemini(base_prompt,max_tok=900)
+        vq = ("Analyze this product image in English (3-4 sentences): "
+              "1. Packaging shape/size 2. Color palette 3. Label design style "
+              "4. Material texture. Brand: " + brand)
+        pkg_analysis = gemini_vision(vq, image_b64, max_tok=250)
+        if "오류" not in pkg_analysis and "Error" not in pkg_analysis:
+            pkg_desc = "\nProduct Visual (from uploaded image):\n" + pkg_analysis
 
-    return result
+    stage_dir = {
+        "HOOK":"Hero product shot, 3-second attention grab, premium lifestyle",
+        "Painpoint":"Customer frustration scene, emotional empathy, no product",
+        "Solution":"Product as dramatic solution, bright color shift",
+        "USP1":"Close-up of key feature, sharp detail focus",
+        "USP2":"Functional benefit in realistic use",
+        "USP3":"Ingredient/material macro, scientific precision",
+        "USP4":"Lifestyle convenience, portability, emotional satisfaction",
+        "TPO":"Multiple daily-life scenes (morning/office/outdoor)",
+        "Certification":"Quality seal visual, clean manufacturing background",
+        "SpecsInfo":"Product spec info-graphic, clean table layout",
+        "Audience":"Icon-based target persona matching chart",
+        "CTA":"Full product bundle, premium hero, purchase motivation"
+    }.get(spec["stage"], "Premium commercial product photography")
+
+    dalle_q = (
+        "You are a senior Naver Smartstore visual designer. "
+        "Write a complete DALL-E 3 image prompt (minimum 120 words, English only).\n\n"
+        "PRODUCT: " + brand + " (" + category + ")\n"
+        "TARGET: " + (target if target else "Korean adults 20-50") + "\n"
+        "FEATURES: " + features
+        + pkg_desc +
+        "\nIMAGE #" + str(spec["no"]) + ": " + spec["stage"] + " (" + spec["kr"] + ") | 860x" + str(spec["h"]) + "px"
+        "\nSTAGE DIRECTION: " + stage_dir +
+        "\n\nMANDATORY:\n"
+        "- Top 38% = FLAT SOLID single-color background (zero objects, for text overlay)\n"
+        "- NO text in image\n"
+        "- Photorealistic commercial photography\n"
+        "- Single focal point, mobile-first\n"
+        "- NO fake reviews/certifications\n\n"
+        "Write ONLY the prompt starting with 'Photorealistic':"
+    )
+    dalle_result = gemini(dalle_q, max_tok=1200)
+
+    copy_q = (
+        "스마트스토어 상세페이지 " + str(spec["no"]) + "번(" + spec["kr"] + ") 광고 카피:\n"
+        "상품: " + brand + " (" + category + ")\n"
+        "특징: " + features[:200] + "\n\n"
+        "메인 카피: (15-25자, 숫자 포함)\n"
+        "서브 카피: (1-2문장)\n"
+        "전환 포인트: (구매 유도 요소)"
+    )
+    copy_result = gemini(copy_q, max_tok=300)
+
+    final = (
+        "[Image " + f"{spec['no']:02d}" + ": " + spec["stage"] + " (" + spec["kr"] + ") | 860x" + str(spec["h"]) + "px]\n\n"
+        + copy_result
+        + "\n\n---\nDALL-E 3 Prompt (아래 내용을 ChatGPT에 그대로 붙여넣기):\n"
+        "이 프롬프트로 이미지를 생성해줘:\n\n"
+        + dalle_result
+        + " The top 38% must be flat solid single-color background with no objects."
+        " 860px width, " + str(spec["h"]) + "px height. No text in image."
+    )
+    return final
 
 # ── 사이드바 ─────────────────────────────────────────────────
 with st.sidebar:
@@ -435,7 +464,7 @@ with tab1:
         st.markdown("""<div style="text-align:center;padding:3rem 0;color:#94a3b8">
             <div style="font-size:3rem">📦</div>
             <div style="font-size:1rem;margin-top:.5rem">키워드를 입력하고 검색하세요</div>
-            <div style="font-size:.8rem;margin-top:.3rem">업체등급: 🏅 버튼 클릭 또는 ⭐ 관심 등록 시 자동 조회</div>
+            <div style="font-size:.8rem;margin-top:.3rem">업체등급: ⭐ 관심 등록 시 자동 조회 (관심 상품 탭에서 확인)</div>
         </div>""",unsafe_allow_html=True)
     else:
         raw=pd.DataFrame(st.session_state["live_results"])
@@ -443,26 +472,6 @@ with tab1:
         else:
             for col,d in [("seller_grade",""),("image_url","")]:
                 if col not in raw.columns: raw[col]=d
-
-            # ★ 업체등급 조회 버튼
-            missing=int((raw["seller_grade"]=="").sum()+(raw["seller_grade"].isna()).sum())
-            if missing>0 and client:
-                gb_col,_=st.columns([2.5,3])
-                with gb_col:
-                    if st.button(f"🏅 업체등급 조회 (상위 15개 상세 API 호출, 약 5~10초)",
-                                 use_container_width=True,type="secondary"):
-                        with st.spinner("상세 API 호출 중... (Streamlit Logs에서 [상세 seller원문] 확인 가능)"):
-                            updated=client.batch_fetch_grades(raw.to_dict("records"),limit=15)
-                            udf=pd.DataFrame(updated)
-                            # 캐시 저장
-                            cache=st.session_state["grade_cache"]
-                            for _,row in udf.iterrows():
-                                if row.get("seller_grade"):
-                                    cache[str(row["product_id"])]=row["seller_grade"]
-                            st.session_state["grade_cache"]=cache
-                            st.session_state["live_results"]=udf.to_dict("records")
-                        st.info("조회 완료. 등급이 여전히 비어있다면 Manage app → Logs에서 '[상세 seller원문]' 줄을 확인해 주세요.")
-                        st.rerun()
 
             sc=raw["site"].value_counts().to_dict()
             st.markdown(f"<div style='color:#64748b;font-size:.85rem;margin-bottom:.5rem'>검색결과: "+" | ".join(f"{s} {n}개" for s,n in sc.items())+f" / 총 {len(raw):,}개</div>",unsafe_allow_html=True)
@@ -669,7 +678,7 @@ with tab3:
     with st.container(border=True):
         kp=st.text_input("상품명",placeholder="예: 냉동 딸기 2.72kg",key="kw_prod")
         kf=st.text_area("주요 특징 (선택)",placeholder="예: 베이킹용, 스무디용, 대용량",height=70,key="kw_feat")
-        kpls=st.multiselect("등록할 플랫폼",options=list(PLATFORM_FEE.keys()),
+        kpls=st.multiselect("플랫폼 선택",options=list(PLATFORM_FEE.keys()),
                             default=["네이버 스마트스토어","쿠팡"],key="kw_pls")
         if st.button("🔑 키워드 생성",type="primary",use_container_width=True,
                      disabled=(not GEMINI_KEY or not kp or not kpls)):
@@ -843,19 +852,13 @@ GEMINI_API_KEY     = "제미나이키(무료)"
 # ══════════════════════════════════════════════════════════════
 with tab6:
     st.markdown("### 📖 가이드")
-    with st.expander("업체등급 — 확인 방법"):
+    with st.expander("업체등급 확인 방법"):
         st.markdown("""
-도매매/도매꾹 목록 API(getItemList)는 seller/grade 필드를 제공하지 않습니다.
-상세 API(getItemView)에서만 등급 정보가 반환됩니다.
+⭐ 관심 등록 시 상세 API가 자동 호출되어 등급이 저장됩니다.
+관심 상품 탭에서 업체등급을 확인하세요.
 
-확인 방법:
-1. 🏅 업체등급 조회 버튼 — 상위 15개 상세 API 일괄 호출 (5~10초)
-2. ⭐ 관심 등록 시 — 즉시 상세 API 호출, DB 영구 저장
-3. 등급은 grade_cache에 저장되어 재검색 없이 유지
-
-등급이 여전히 안 나온다면:
-Manage app → Logs에서 '[상세 seller원문]' 줄을 찾아
-실제 JSON 내용을 공유해 주세요 → 정확한 필드명 파싱 코드로 수정합니다.
+등급: ⭐S > 🔵A > 🟢B > 🟡C > 🟠D > 🔴E
+B등급 이상 공급사 소싱을 권장합니다.
         """)
     with st.expander("AI 이미지 생성 사용법"):
         st.markdown("""
