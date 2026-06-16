@@ -1,8 +1,8 @@
 """
-naver_client.py v2 — 네이버 API 클라이언트
-쇼핑/블로그/뉴스/카페 검색: display=100 (최대), 페이징 지원
-데이터랩 검색어 트렌드 (성별/연령 필터)
-쇼핑인사이트 (카테고리 키워드 클릭 트렌드)
+naver_client.py v3 — 네이버 API 클라이언트
+- 블로그: bloggername, bloggerlink 필드 포함
+- 쇼핑인사이트: 다중 키워드 지원 확인
+- display=100 (최대), 페이징 지원
 """
 import requests, json
 import pandas as pd
@@ -45,7 +45,6 @@ class NaverClient:
                     .replace("&gt;",">").replace("&amp;","&"))
 
     def search_shopping(self, keywords, display=100, page=1, sort="sim"):
-        """쇼핑 검색 — 최대 100개, 페이지 지원"""
         display = min(display, 100)
         start   = (page - 1) * display + 1
         rows = []
@@ -66,12 +65,21 @@ class NaverClient:
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     def search_blog(self, keywords, display=100, page=1):
+        """블로그 검색 — bloggername, bloggerlink 포함"""
         start = (page-1)*min(display,100)+1
         rows=[]
         for kw in keywords:
             data=self._get("blog.json",{"query":kw,"display":min(display,100),"start":start,"sort":"date"})
             for item in data.get("items",[]):
-                rows.append({"search_keyword":kw,"title":self._clean(item.get("title","")),"link":item.get("link",""),"description":self._clean(item.get("description","")),"postdate":item.get("postdate","")})
+                rows.append({
+                    "search_keyword": kw,
+                    "title":       self._clean(item.get("title","")),
+                    "link":        item.get("link",""),
+                    "description": self._clean(item.get("description","")),
+                    "bloggername": item.get("bloggername",""),
+                    "bloggerlink": item.get("bloggerlink",""),
+                    "postdate":    item.get("postdate",""),
+                })
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     def search_news(self, keywords, display=100, page=1):
@@ -80,7 +88,13 @@ class NaverClient:
         for kw in keywords:
             data=self._get("news.json",{"query":kw,"display":min(display,100),"start":start,"sort":"date"})
             for item in data.get("items",[]):
-                rows.append({"search_keyword":kw,"title":self._clean(item.get("title","")),"link":item.get("originallink",item.get("link","")),"description":self._clean(item.get("description","")),"pubDate":item.get("pubDate","")})
+                rows.append({
+                    "search_keyword": kw,
+                    "title":       self._clean(item.get("title","")),
+                    "link":        item.get("originallink",item.get("link","")),
+                    "description": self._clean(item.get("description","")),
+                    "pubDate":     item.get("pubDate",""),
+                })
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     def search_cafe(self, keywords, display=100, page=1):
@@ -89,13 +103,21 @@ class NaverClient:
         for kw in keywords:
             data=self._get("cafearticle.json",{"query":kw,"display":min(display,100),"start":start,"sort":"date"})
             for item in data.get("items",[]):
-                rows.append({"search_keyword":kw,"title":self._clean(item.get("title","")),"link":item.get("link",""),"description":self._clean(item.get("description","")),"cafename":item.get("cafename","")})
+                rows.append({
+                    "search_keyword": kw,
+                    "title":       self._clean(item.get("title","")),
+                    "link":        item.get("link",""),
+                    "description": self._clean(item.get("description","")),
+                    "cafename":    item.get("cafename",""),
+                    "cafeurl":     item.get("cafeurl",""),
+                })
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     def datalab_trend(self, keywords, start_date, end_date, time_unit="date", gender="", ages=None):
-        """데이터랩 검색어 트렌드 (성별/연령 필터 지원)"""
-        body={"startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
-              "keywordGroups":[{"groupName":k,"keywords":[k]} for k in keywords[:5]]}
+        body={
+            "startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
+            "keywordGroups":[{"groupName":k,"keywords":[k]} for k in keywords[:5]],
+        }
         if gender: body["gender"]=gender
         if ages:   body["ages"]=ages
         data=self._post(f"{self.DATALAB_BASE}/search",body)
@@ -105,21 +127,36 @@ class NaverClient:
         return pd.concat(dfs) if dfs else pd.DataFrame()
 
     def datalab_shopping_insight(self, category_id, keywords, start_date, end_date, time_unit="date"):
-        """쇼핑인사이트 카테고리 내 키워드 클릭 트렌드"""
-        body={"startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
-              "category":category_id,"keyword":[{"name":k,"param":[k]} for k in keywords[:5]]}
+        """
+        쇼핑인사이트 — 최대 5개 키워드 동시 조회
+        API가 keyword 배열을 받아 results 배열로 반환
+        """
+        kw_list = [{"name": k, "param": [k]} for k in keywords[:5]]
+        body={
+            "startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
+            "category":category_id,
+            "keyword": kw_list,
+        }
         data=self._post(f"{self.DATALAB_BASE}/shopping/category/keywords",body)
         results=data.get("results",[])
-        if not results: return pd.DataFrame()
+        if not results:
+            print(f"[쇼핑인사이트] 결과 없음. 응답: {data}")
+            return pd.DataFrame()
         dfs=[]
         for r in results:
+            kw_name = r.get("title","")
             if r.get("data"):
-                df=pd.DataFrame(r["data"]); df["keyword"]=r["title"]; dfs.append(df)
-        return pd.concat(dfs) if dfs else pd.DataFrame()
+                df=pd.DataFrame(r["data"])
+                df["keyword"]=kw_name
+                dfs.append(df)
+        result_df = pd.concat(dfs) if dfs else pd.DataFrame()
+        if not result_df.empty:
+            print(f"[쇼핑인사이트] 키워드 {result_df['keyword'].unique().tolist()} 수집 완료")
+        return result_df
 
     INSIGHT_CATEGORIES = {
         "패션의류":"50000000","패션잡화":"50000001","화장품/미용":"50000002",
-        "디지털/가전":"50000003","가구/인테리어":"50000004","식품":"50000005",
-        "스포츠/레저":"50000006","생활/건강":"50000007","여행/문화":"50000008",
-        "출산/육아":"50000009","반려동물":"50000010",
+        "디지털/가전":"50000003","가구/인테리어":"50000004",
+        "출산/육아":"50000005","식품":"50000006","스포츠/레저":"50000007",
+        "생활/건강":"50000008","여가/생활편의":"50000009",
     }
