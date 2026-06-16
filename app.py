@@ -1272,11 +1272,48 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                 df_nw=st.session_state.get("na_news_df",pd.DataFrame())
                 if not df_nw.empty:
                     df_nw2=df_nw.copy()
+                    # pubDate 파싱 및 정제
                     df_nw2["pubDate"]=pd.to_datetime(df_nw2["pubDate"],errors="coerce")
+                    # ★ 파싱 오류 및 이상치 제거 — 최근 180일 이내만 사용
+                    now = pd.Timestamp.now(tz="UTC").tz_localize(None)
+                    df_nw2["pubDate"] = df_nw2["pubDate"].dt.tz_localize(None) if df_nw2["pubDate"].dt.tz is not None else df_nw2["pubDate"]
+                    cutoff = now - pd.Timedelta(days=180)
+                    df_nw_valid = df_nw2[df_nw2["pubDate"] >= cutoff].copy()
+                    if df_nw_valid.empty: df_nw_valid = df_nw2.copy()  # 필터 후 비면 전체 사용
                     st.metric("수집된 뉴스 기사",f"{len(df_nw2):,}건")
-                    news_daily=df_nw2.groupby([df_nw2["pubDate"].dt.date,"search_keyword"]).size().reset_index(name="뉴스 수")
-                    news_daily.columns=["발행일","키워드","뉴스 수"]
-                    st.plotly_chart(px.bar(news_daily,x="발행일",y="뉴스 수",color="키워드",barmode="group",title="날짜별 뉴스 발행 현황"),use_container_width=True,key="pc_8")
+
+                    # ① 날짜별 뉴스 발행 현황 — date_only로 groupby (직관적 바 차트)
+                    df_nw_valid["date_only"] = df_nw_valid["pubDate"].dt.date
+                    news_daily = df_nw_valid.groupby(["date_only","search_keyword"]).size().reset_index(name="뉴스 수")
+                    news_daily.columns = ["발행일","키워드","뉴스 수"]
+                    unique_days = news_daily["발행일"].nunique()
+
+                    if unique_days >= 2:
+                        # 날짜가 다양 → 날짜별 누적 바 차트
+                        fig_news_bar = px.bar(
+                            news_daily, x="발행일", y="뉴스 수", color="키워드",
+                            barmode="stack",
+                            title=f"날짜별 뉴스 발행 현황 (최근 {unique_days}일)",
+                            labels={"발행일":"날짜","뉴스 수":"기사 수","키워드":"키워드"},
+                            color_discrete_sequence=px.colors.qualitative.Vivid,
+                            text_auto=True,
+                        )
+                        fig_news_bar.update_layout(
+                            xaxis_tickangle=-45,
+                            bargap=0.2,
+                            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        )
+                        st.plotly_chart(fig_news_bar, use_container_width=True, key="pc_8")
+                    else:
+                        # 날짜가 1~2일 → 키워드별 건수 바 차트
+                        cnt_nw_kw = df_nw_valid["search_keyword"].value_counts().reset_index()
+                        cnt_nw_kw.columns = ["키워드","기사 수"]
+                        fig_cnt = px.bar(cnt_nw_kw, x="키워드", y="기사 수", color="키워드",
+                                         title="키워드별 수집 뉴스 수",
+                                         text_auto=True,
+                                         color_discrete_sequence=px.colors.qualitative.Vivid)
+                        st.plotly_chart(fig_cnt, use_container_width=True, key="pc_8")
+                        st.caption(f"💡 뉴스 발행일이 {unique_days}개 날짜에 집중되어 있어 키워드별 현황으로 표시합니다.")
                     from collections import Counter
                     all_nw_t=" ".join(df_nw2["title"].dropna().tolist())
                     stop_nw=[w for w in na_keywords]+["있는","이번","하는","그리고","이","가","을","는","에","의","도"]
