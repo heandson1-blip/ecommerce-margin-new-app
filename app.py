@@ -1107,7 +1107,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     else:
                         cnt_bl=df_bl["search_keyword"].value_counts().reset_index()
                         cnt_bl.columns=["키워드","건수"]
-                        st.plotly_chart(px.bar(cnt_bl,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수",key="pc_4"),use_container_width=True,key="bl_daily_chart")
+                        st.plotly_chart(px.bar(cnt_bl,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수"),use_container_width=True,key="bl_daily_chart")
 
                     bc1,bc2=st.columns(2)
                     with bc1:
@@ -1176,12 +1176,12 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     ca1,ca2=st.columns(2)
                     with ca1:
                         cafe_kw=df_ca["search_keyword"].value_counts().reset_index(); cafe_kw.columns=["키워드","게시물 수"]
-                        st.plotly_chart(px.bar(cafe_kw,x="게시물 수",y="키워드",orientation="h",title="키워드별 카페 활동량 비교",color="키워드",color_discrete_sequence=px.colors.qualitative.Pastel,key="pc_5"),use_container_width=True)
+                        st.plotly_chart(px.bar(cafe_kw,x="게시물 수",y="키워드",orientation="h",title="키워드별 카페 활동량 비교",color="키워드",color_discrete_sequence=px.colors.qualitative.Pastel),use_container_width=True,key="pc_5")
                     with ca2:
                         if "cafename" in df_ca.columns:
                             top_ca=df_ca[df_ca["cafename"]!=""]["cafename"].value_counts().head(10).reset_index(); top_ca.columns=["카페명","게시물 수"]
                             if not top_ca.empty:
-                                st.plotly_chart(px.bar(top_ca,x="게시물 수",y="카페명",orientation="h",title="🏆 주요 활동 카페 TOP10",color="게시물 수",color_continuous_scale="Viridis",key="pc_6"),use_container_width=True)
+                                st.plotly_chart(px.bar(top_ca,x="게시물 수",y="카페명",orientation="h",title="🏆 주요 활동 카페 TOP10",color="게시물 수",color_continuous_scale="Viridis"),use_container_width=True,key="pc_6")
                     from collections import Counter
                     all_ca_t=" ".join(df_ca["title"].dropna().tolist())
                     stop_ca=[w for w in na_keywords]+["있는","이번","하는","그리고","이","가","을","는","에","의","도"]
@@ -1231,7 +1231,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     st.metric("수집된 뉴스 기사",f"{len(df_nw2):,}건")
                     news_daily=df_nw2.groupby([df_nw2["pubDate"].dt.date,"search_keyword"]).size().reset_index(name="뉴스 수")
                     news_daily.columns=["발행일","키워드","뉴스 수"]
-                    st.plotly_chart(px.bar(news_daily,x="발행일",y="뉴스 수",color="키워드",barmode="group",title="날짜별 뉴스 발행 현황",key="pc_8"),use_container_width=True)
+                    st.plotly_chart(px.bar(news_daily,x="발행일",y="뉴스 수",color="키워드",barmode="group",title="날짜별 뉴스 발행 현황"),use_container_width=True,key="pc_8")
                     from collections import Counter
                     all_nw_t=" ".join(df_nw2["title"].dropna().tolist())
                     stop_nw=[w for w in na_keywords]+["있는","이번","하는","그리고","이","가","을","는","에","의","도"]
@@ -1705,7 +1705,7 @@ with tab10:
         st.markdown("**📊 콘텐츠 채널별 점유율 (SOV)**")
         if total_content>0:
             df_sov=pd.DataFrame(list(content_counts.items()),columns=["채널","건수"])
-            st.plotly_chart(px.pie(df_sov,values="건수",names="채널",hole=0.5,color_discrete_sequence=px.colors.qualitative.Pastel,key="pc_12"),use_container_width=True,key="tab10_sov_pie")
+            st.plotly_chart(px.pie(df_sov,values="건수",names="채널",hole=0.5,color_discrete_sequence=px.colors.qualitative.Pastel),use_container_width=True,key="tab10_sov_pie")
         else:
             st.info("시장 분석 탭에서 데이터를 먼저 수집하세요.")
     with rep2:
