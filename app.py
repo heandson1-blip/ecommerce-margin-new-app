@@ -880,39 +880,55 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
             # ── 워드클라우드 헬퍼 (한글 폰트 fallback) ─────
             def make_wordcloud_chart(word_counts, title="이슈 키워드"):
                 """
-                워드클라우드 대체 — Streamlit Cloud 한글 폰트 없음으로 깨짐
-                → 상위 키워드를 버블 크기로 시각화 (plotly scatter)
+                한글 워드클라우드
+                - packages.txt에 fonts-nanum 설치 → Streamlit Cloud 한글 정상 표시
+                - 폰트 없을 시 Plotly 수평 바 차트로 fallback
                 """
                 if not word_counts:
-                    return None
-                from collections import Counter
-                words, counts = zip(*word_counts[:30]) if word_counts else ([], [])
-                import plotly.graph_objects as go
-                import math
-                fig = go.Figure()
-                colors = [f"hsl({int(i*360/len(words))},70%,55%)" for i in range(len(words))]
-                for i,(w,c) in enumerate(zip(words,counts)):
-                    row, col = divmod(i, 6)
-                    fig.add_trace(go.Scatter(
-                        x=[col + (row%2)*0.3],
-                        y=[-row],
-                        mode="markers+text",
-                        marker=dict(size=max(20, min(80, c*4)), color=colors[i], opacity=0.8,
-                                    line=dict(width=1, color="white")),
-                        text=[w],
-                        textposition="middle center",
-                        textfont=dict(size=max(9, min(16, c//2+8)), color="white"),
-                        hovertemplate=f"{w}: {c}건<extra></extra>",
-                        showlegend=False,
-                    ))
-                fig.update_layout(
-                    title=title, height=320,
-                    xaxis=dict(visible=False, range=[-0.5, 6.5]),
-                    yaxis=dict(visible=False),
-                    plot_bgcolor="white", paper_bgcolor="white",
-                    margin=dict(l=10,r=10,t=40,b=10),
+                    return None, None
+                import os
+                from wordcloud import WordCloud
+                import numpy as np
+
+                font_candidates = [
+                    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+                    "/usr/share/fonts/truetype/nanum/NanumBarunGothic.ttf",
+                    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
+                    "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
+                    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+                ]
+                font_path = next((fp for fp in font_candidates if os.path.exists(fp)), None)
+
+                words_dict = dict(word_counts[:50])
+
+                if font_path:
+                    try:
+                        wc = WordCloud(
+                            font_path=font_path,
+                            width=900, height=400,
+                            background_color="white",
+                            max_words=50,
+                            collocations=False,
+                            colormap="tab20",
+                        ).generate_from_frequencies(words_dict)
+                        return wc.to_array(), None  # (이미지 배열, 없음)
+                    except Exception as e:
+                        print(f"[WordCloud] 오류: {e}")
+
+                # fallback: 수평 바 차트
+                top20 = word_counts[:20]
+                if not top20: return None, None
+                words_list, cnt_list = zip(*top20)
+                import plotly.express as _px2
+                fig = _px2.bar(
+                    x=list(cnt_list), y=list(words_list),
+                    orientation="h", title=title,
+                    color=list(cnt_list), color_continuous_scale="Viridis",
+                    text_auto=True,
+                    labels={"x": "빈도", "y": "키워드"},
                 )
-                return fig
+                fig.update_layout(yaxis={"categoryorder": "total ascending"}, height=420)
+                return None, fig  # (없음, plotly figure)
 
             # ── 서브탭 구성 ──────────────────────────────────
             nst1,nst2,nst3,nst4,nst5,nst6,nst7 = st.tabs([
@@ -1131,11 +1147,13 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                             fig_bl_wc=px.bar(df_bl_wc,x="단어",y="빈도",color="빈도",title="블로그 제목 핵심 단어",color_continuous_scale="PuRd",text_auto=True)
                             st.plotly_chart(fig_bl_wc,use_container_width=True,key="bl_word_chart")
 
-                    # ④ 키워드 버블 차트 (한글 워드클라우드 대체)
-                    st.markdown("**☁️ 블로그 이슈 키워드 버블 차트**")
-                    fig_bl_wc=make_wordcloud_chart(Counter(bl_words).most_common(30),"블로그 이슈 키워드")
-                    if fig_bl_wc is not None:
-                        st.plotly_chart(fig_bl_wc,use_container_width=True,key="bl_bubble")
+                    # ④ 한글 워드클라우드 (폰트 있으면 이미지, 없으면 바 차트)
+                    st.markdown("**☁️ 블로그 이슈 워드클라우드**")
+                    _bl_img, _bl_fig = make_wordcloud_chart(Counter(bl_words).most_common(50),"블로그 이슈 키워드")
+                    if _bl_img is not None:
+                        st.image(_bl_img, use_container_width=True, caption="Blog Word Cloud")
+                    elif _bl_fig is not None:
+                        st.plotly_chart(_bl_fig, use_container_width=True, key="bl_wc_chart")
 
                     st.divider()
                     # ⑤ 콘텐츠 통합 리스트
@@ -1190,10 +1208,12 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     if ca_wc:
                         df_ca_wc=pd.DataFrame(ca_wc,columns=["단어","빈도"])
                         st.plotly_chart(px.bar(df_ca_wc,x="단어",y="빈도",color="빈도",title="카페 게시글 핵심 키워드 TOP15",color_continuous_scale="Blues",text_auto=True),use_container_width=True,key="ca_word_chart")
-                    st.markdown("**☁️ 카페 이슈 키워드 버블 차트**")
-                    fig_ca_wc=make_wordcloud_chart(Counter(ca_words).most_common(30),"카페 이슈 키워드")
-                    if fig_ca_wc is not None:
-                        st.plotly_chart(fig_ca_wc,use_container_width=True,key="ca_bubble")
+                    st.markdown("**☁️ 카페 이슈 워드클라우드**")
+                    _ca_img, _ca_fig = make_wordcloud_chart(Counter(ca_words).most_common(50),"카페 이슈 키워드")
+                    if _ca_img is not None:
+                        st.image(_ca_img, use_container_width=True, caption="Cafe Word Cloud")
+                    elif _ca_fig is not None:
+                        st.plotly_chart(_ca_fig, use_container_width=True, key="ca_wc_chart")
                     st.divider()
                     st.markdown("**👥 최신 통합 카페 게시물**")
                     pg_ca=st.session_state.get("na_cafe_page",1)
@@ -1242,10 +1262,12 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         fig_nw_wc=px.bar(df_nw_wc,x="빈도",y="단어",orientation="h",title="실시간 뉴스 핵심 키워드 (Hot Topics)",color="빈도",color_continuous_scale="Reds",text_auto=True)
                         fig_nw_wc.update_layout(yaxis={"categoryorder":"total ascending"})
                         st.plotly_chart(fig_nw_wc,use_container_width=True,key="pc_9")
-                    st.markdown("**☁️ 뉴스 이슈 키워드 버블 차트**")
-                    fig_nw_wc=make_wordcloud_chart(Counter(nw_words).most_common(30),"뉴스 이슈 키워드")
-                    if fig_nw_wc is not None:
-                        st.plotly_chart(fig_nw_wc,use_container_width=True,key="nw_bubble")
+                    st.markdown("**☁️ 뉴스 이슈 워드클라우드**")
+                    _nw_img, _nw_fig = make_wordcloud_chart(Counter(nw_words).most_common(50),"뉴스 이슈 키워드")
+                    if _nw_img is not None:
+                        st.image(_nw_img, use_container_width=True, caption="News Word Cloud")
+                    elif _nw_fig is not None:
+                        st.plotly_chart(_nw_fig, use_container_width=True, key="nw_wc_chart")
                     st.divider()
                     st.markdown("**🗞️ 최신 뉴스 게시물**")
                     pg_nw=st.session_state.get("na_news_page",1)
@@ -1409,7 +1431,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
 
 > **Note**: 각 채널별 최대 100건 표본 기반 결과입니다."""
                     st.markdown(report)
-                    st.download_button("📥 리포트 다운로드(TXT)",data=report,file_name=f"report_{datetime.now().strftime('%Y%m%d')}.txt",mime="text/plain")
+                    st.download_button("📥 리포트 다운로드(TXT)",data=report,file_name=f"report_{datetime.now().strftime('%Y%m%d')}.txt",mime="text/plain",key="nst7_report_dl")
 
 
 with tab6:
@@ -1726,4 +1748,4 @@ with tab10:
 
 > Note: 각 채널별 최대 100건 표본 기반 결과입니다."""
         st.markdown(report)
-        st.download_button("📥 리포트 다운로드(TXT)",data=report,file_name=f"report_{datetime.now().strftime('%Y%m%d')}.txt",mime="text/plain")
+        st.download_button("📥 리포트 다운로드(TXT)",data=report,file_name=f"report_{datetime.now().strftime('%Y%m%d')}.txt",mime="text/plain",key="tab10_report_dl")
