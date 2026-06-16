@@ -878,33 +878,41 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                 st.session_state["na_prev_kw"] = na_keywords
 
             # ── 워드클라우드 헬퍼 (한글 폰트 fallback) ─────
-            def make_wordcloud(text, width=800, height=300):
-                """한글 폰트 없어도 동작, 있으면 한글 표시"""
-                if not text.strip():
+            def make_wordcloud_chart(word_counts, title="이슈 키워드"):
+                """
+                워드클라우드 대체 — Streamlit Cloud 한글 폰트 없음으로 깨짐
+                → 상위 키워드를 버블 크기로 시각화 (plotly scatter)
+                """
+                if not word_counts:
                     return None
-                font_candidates = [
-                    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-                    "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
-                    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
-                ]
-                font_path = None
-                import os
-                for fp in font_candidates:
-                    if os.path.exists(fp):
-                        font_path = fp
-                        break
-                try:
-                    from wordcloud import WordCloud
-                    kwargs = dict(width=width, height=height,
-                                  background_color="white", max_words=80,
-                                  collocations=False)
-                    if font_path:
-                        kwargs["font_path"] = font_path
-                    wc = WordCloud(**kwargs).generate(text)
-                    return wc.to_array()
-                except Exception as e:
-                    print(f"[WordCloud] {e}")
-                    return None
+                from collections import Counter
+                words, counts = zip(*word_counts[:30]) if word_counts else ([], [])
+                import plotly.graph_objects as go
+                import math
+                fig = go.Figure()
+                colors = [f"hsl({int(i*360/len(words))},70%,55%)" for i in range(len(words))]
+                for i,(w,c) in enumerate(zip(words,counts)):
+                    row, col = divmod(i, 6)
+                    fig.add_trace(go.Scatter(
+                        x=[col + (row%2)*0.3],
+                        y=[-row],
+                        mode="markers+text",
+                        marker=dict(size=max(20, min(80, c*4)), color=colors[i], opacity=0.8,
+                                    line=dict(width=1, color="white")),
+                        text=[w],
+                        textposition="middle center",
+                        textfont=dict(size=max(9, min(16, c//2+8)), color="white"),
+                        hovertemplate=f"{w}: {c}건<extra></extra>",
+                        showlegend=False,
+                    ))
+                fig.update_layout(
+                    title=title, height=320,
+                    xaxis=dict(visible=False, range=[-0.5, 6.5]),
+                    yaxis=dict(visible=False),
+                    plot_bgcolor="white", paper_bgcolor="white",
+                    margin=dict(l=10,r=10,t=40,b=10),
+                )
+                return fig
 
             # ── 서브탭 구성 ──────────────────────────────────
             nst1,nst2,nst3,nst4,nst5,nst6,nst7 = st.tabs([
@@ -960,7 +968,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         fig=px.line(df_t,x="period",y="ratio",color="keyword",facet_col="gender",title="성별 검색 트렌드 비교",markers=True)
                         fig.for_each_annotation(lambda a:a.update(text=a.text.split("=")[-1]))
                     fig.update_layout(hovermode="x unified")
-                    st.plotly_chart(fig,use_container_width=True)
+                    st.plotly_chart(fig,use_container_width=True,key="pc_1")
 
                     tr1,tr2=st.columns(2)
                     with tr1:
@@ -1015,12 +1023,12 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     with ch1:
                         if disp_s["lprice"].sum()>0:
                             fig_box=px.box(disp_s,x="search_keyword",y="lprice",color="search_keyword",title="키워드별 가격 분포",labels={"lprice":"최저가(원)","search_keyword":"키워드"})
-                            st.plotly_chart(fig_box,use_container_width=True)
+                            st.plotly_chart(fig_box,use_container_width=True,key="pc_2")
                     with ch2:
                         mall_cnt=disp_s["mall_name"].value_counts().head(10).reset_index()
                         mall_cnt.columns=["판매처","상품수"]
                         fig_mall=px.bar(mall_cnt,x="상품수",y="판매처",orientation="h",title="판매처별 상품 노출 TOP10",color="상품수",color_continuous_scale="Blues")
-                        st.plotly_chart(fig_mall,use_container_width=True)
+                        st.plotly_chart(fig_mall,use_container_width=True,key="pc_3")
 
                     st.divider()
                     PAGE_SZ=12 if "카드" in sh_view else 20
@@ -1087,18 +1095,19 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     st.metric("수집된 블로그 문서",f"{len(df_bl):,}건")
 
                     # ① 키워드별 최근 블로그 게시물 분포 (라인 차트)
+                    # postdate: "20251105" → date만 추출하여 groupby
                     valid_bl=df_bl[df_bl["postdate_dt"].notna()].copy()
                     if not valid_bl.empty:
-                        blog_daily=valid_bl.groupby(["postdate_dt","search_keyword"]).size().reset_index(name="content_count")
-                        fig_bl=px.line(blog_daily,x="postdate_dt",y="content_count",color="search_keyword",
+                        valid_bl["date_only"]=valid_bl["postdate_dt"].dt.date
+                        blog_daily=valid_bl.groupby(["date_only","search_keyword"]).size().reset_index(name="content_count")
+                        fig_bl=px.line(blog_daily,x="date_only",y="content_count",color="search_keyword",
                                        title="키워드별 최근 블로그 게시물 분포",markers=True,
-                                       labels={"postdate_dt":"작성일","content_count":"게시물 수","search_keyword":"키워드"})
-                        st.plotly_chart(fig_bl,use_container_width=True)
+                                       labels={"date_only":"작성일","content_count":"게시물 수","search_keyword":"키워드"})
+                        st.plotly_chart(fig_bl,use_container_width=True,key="bl_daily_chart")
                     else:
-                        # 날짜 파싱 실패 시 키워드별 건수 바 차트
                         cnt_bl=df_bl["search_keyword"].value_counts().reset_index()
                         cnt_bl.columns=["키워드","건수"]
-                        st.plotly_chart(px.bar(cnt_bl,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수"),use_container_width=True)
+                        st.plotly_chart(px.bar(cnt_bl,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수",key="pc_4"),use_container_width=True,key="bl_daily_chart")
 
                     bc1,bc2=st.columns(2)
                     with bc1:
@@ -1109,7 +1118,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                                 fig_bl2=px.bar(top_bl,x="건수",y="bloggername",orientation="h",
                                                title="🏆 주요 활동 블로거 TOP10",
                                                color="건수",color_continuous_scale="Magma")
-                                st.plotly_chart(fig_bl2,use_container_width=True)
+                                st.plotly_chart(fig_bl2,use_container_width=True,key="bl_top10")
                     with bc2:
                         # ③ 블로그 제목 핵심 단어
                         from collections import Counter
@@ -1120,16 +1129,13 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         if wc_bl:
                             df_bl_wc=pd.DataFrame(wc_bl,columns=["단어","빈도"])
                             fig_bl_wc=px.bar(df_bl_wc,x="단어",y="빈도",color="빈도",title="블로그 제목 핵심 단어",color_continuous_scale="PuRd",text_auto=True)
-                            st.plotly_chart(fig_bl_wc,use_container_width=True)
+                            st.plotly_chart(fig_bl_wc,use_container_width=True,key="bl_word_chart")
 
-                    # ④ 워드클라우드
-                    st.markdown("**☁️ 블로그 이슈 워드클라우드**")
-                    wc_img=make_wordcloud(all_bl_titles)
-                    if wc_img is not None:
-                        st.image(wc_img,use_container_width=True,caption="Blog Word Cloud")
-                    else:
-                        # fallback: 상위 키워드 표시
-                        st.markdown(" ".join([f'`{w}({c})`' for w,c in Counter(bl_words).most_common(20)]))
+                    # ④ 키워드 버블 차트 (한글 워드클라우드 대체)
+                    st.markdown("**☁️ 블로그 이슈 키워드 버블 차트**")
+                    fig_bl_wc=make_wordcloud_chart(Counter(bl_words).most_common(30),"블로그 이슈 키워드")
+                    if fig_bl_wc is not None:
+                        st.plotly_chart(fig_bl_wc,use_container_width=True,key="bl_bubble")
 
                     st.divider()
                     # ⑤ 콘텐츠 통합 리스트
@@ -1170,12 +1176,12 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     ca1,ca2=st.columns(2)
                     with ca1:
                         cafe_kw=df_ca["search_keyword"].value_counts().reset_index(); cafe_kw.columns=["키워드","게시물 수"]
-                        st.plotly_chart(px.bar(cafe_kw,x="게시물 수",y="키워드",orientation="h",title="키워드별 카페 활동량 비교",color="키워드",color_discrete_sequence=px.colors.qualitative.Pastel),use_container_width=True)
+                        st.plotly_chart(px.bar(cafe_kw,x="게시물 수",y="키워드",orientation="h",title="키워드별 카페 활동량 비교",color="키워드",color_discrete_sequence=px.colors.qualitative.Pastel,key="pc_5"),use_container_width=True)
                     with ca2:
                         if "cafename" in df_ca.columns:
                             top_ca=df_ca[df_ca["cafename"]!=""]["cafename"].value_counts().head(10).reset_index(); top_ca.columns=["카페명","게시물 수"]
                             if not top_ca.empty:
-                                st.plotly_chart(px.bar(top_ca,x="게시물 수",y="카페명",orientation="h",title="🏆 주요 활동 카페 TOP10",color="게시물 수",color_continuous_scale="Viridis"),use_container_width=True)
+                                st.plotly_chart(px.bar(top_ca,x="게시물 수",y="카페명",orientation="h",title="🏆 주요 활동 카페 TOP10",color="게시물 수",color_continuous_scale="Viridis",key="pc_6"),use_container_width=True)
                     from collections import Counter
                     all_ca_t=" ".join(df_ca["title"].dropna().tolist())
                     stop_ca=[w for w in na_keywords]+["있는","이번","하는","그리고","이","가","을","는","에","의","도"]
@@ -1183,11 +1189,11 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     ca_wc=Counter(ca_words).most_common(15)
                     if ca_wc:
                         df_ca_wc=pd.DataFrame(ca_wc,columns=["단어","빈도"])
-                        st.plotly_chart(px.bar(df_ca_wc,x="단어",y="빈도",color="빈도",title="카페 게시글 핵심 키워드 (TOP15)",color_continuous_scale="Blues",text_auto=True),use_container_width=True)
-                    st.markdown("**☁️ 카페 이슈 워드클라우드**")
-                    wc_ca=make_wordcloud(all_ca_t)
-                    if wc_ca is not None: st.image(wc_ca,use_container_width=True,caption="Cafe Word Cloud")
-                    else: st.markdown(" ".join([f'`{w}({c})`' for w,c in Counter(ca_words).most_common(20)]))
+                        st.plotly_chart(px.bar(df_ca_wc,x="단어",y="빈도",color="빈도",title="카페 게시글 핵심 키워드 TOP15",color_continuous_scale="Blues",text_auto=True),use_container_width=True,key="ca_word_chart")
+                    st.markdown("**☁️ 카페 이슈 키워드 버블 차트**")
+                    fig_ca_wc=make_wordcloud_chart(Counter(ca_words).most_common(30),"카페 이슈 키워드")
+                    if fig_ca_wc is not None:
+                        st.plotly_chart(fig_ca_wc,use_container_width=True,key="ca_bubble")
                     st.divider()
                     st.markdown("**👥 최신 통합 카페 게시물**")
                     pg_ca=st.session_state.get("na_cafe_page",1)
@@ -1225,7 +1231,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     st.metric("수집된 뉴스 기사",f"{len(df_nw2):,}건")
                     news_daily=df_nw2.groupby([df_nw2["pubDate"].dt.date,"search_keyword"]).size().reset_index(name="뉴스 수")
                     news_daily.columns=["발행일","키워드","뉴스 수"]
-                    st.plotly_chart(px.bar(news_daily,x="발행일",y="뉴스 수",color="키워드",barmode="group",title="날짜별 뉴스 발행 현황"),use_container_width=True)
+                    st.plotly_chart(px.bar(news_daily,x="발행일",y="뉴스 수",color="키워드",barmode="group",title="날짜별 뉴스 발행 현황",key="pc_8"),use_container_width=True)
                     from collections import Counter
                     all_nw_t=" ".join(df_nw2["title"].dropna().tolist())
                     stop_nw=[w for w in na_keywords]+["있는","이번","하는","그리고","이","가","을","는","에","의","도"]
@@ -1235,11 +1241,11 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         df_nw_wc=pd.DataFrame(nw_wc,columns=["단어","빈도"])
                         fig_nw_wc=px.bar(df_nw_wc,x="빈도",y="단어",orientation="h",title="실시간 뉴스 핵심 키워드 (Hot Topics)",color="빈도",color_continuous_scale="Reds",text_auto=True)
                         fig_nw_wc.update_layout(yaxis={"categoryorder":"total ascending"})
-                        st.plotly_chart(fig_nw_wc,use_container_width=True)
-                    st.markdown("**☁️ 뉴스 이슈 워드클라우드**")
-                    wc_nw=make_wordcloud(all_nw_t)
-                    if wc_nw is not None: st.image(wc_nw,use_container_width=True,caption="News Word Cloud")
-                    else: st.markdown(" ".join([f'`{w}({c})`' for w,c in Counter(nw_words).most_common(20)]))
+                        st.plotly_chart(fig_nw_wc,use_container_width=True,key="pc_9")
+                    st.markdown("**☁️ 뉴스 이슈 키워드 버블 차트**")
+                    fig_nw_wc=make_wordcloud_chart(Counter(nw_words).most_common(30),"뉴스 이슈 키워드")
+                    if fig_nw_wc is not None:
+                        st.plotly_chart(fig_nw_wc,use_container_width=True,key="nw_bubble")
                     st.divider()
                     st.markdown("**🗞️ 최신 뉴스 게시물**")
                     pg_nw=st.session_state.get("na_news_page",1)
@@ -1286,7 +1292,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                                     color_discrete_sequence=px.colors.qualitative.Vivid,
                                     labels={"period":"날짜","ratio":"클릭 지수(상대값)","keyword":"키워드"})
                     fig_ins.update_layout(hovermode="x unified",legend_title="키워드")
-                    st.plotly_chart(fig_ins,use_container_width=True)
+                    st.plotly_chart(fig_ins,use_container_width=True,key="pc_10")
                     st.info("💡 클릭 지수는 기간 내 최대 수치를 100으로 둔 상대적 지표입니다.")
 
                     # ② 키워드별 상세 분석 + ③ 최고 인기 시점
@@ -1300,7 +1306,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         df_stats=pd.DataFrame(stats_ins)
                         st.dataframe(df_stats,use_container_width=True,hide_index=True)
                         fig_avg=px.bar(df_stats,x="키워드",y="평균 클릭지수",color="평균 클릭지수",title="키워드별 평균 클릭 지수 비교",text_auto=".1f",color_continuous_scale="Blues")
-                        st.plotly_chart(fig_avg,use_container_width=True)
+                        st.plotly_chart(fig_avg,use_container_width=True,key="pc_11")
                     with sc2:
                         st.markdown("**🔥 키워드별 최고 인기 시점**")
                         peak_ins=[]
@@ -1381,7 +1387,7 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                         df_sov=pd.DataFrame(list(content_counts.items()),columns=["채널","건수"])
                         fig_sov=px.pie(df_sov,values="건수",names="채널",hole=0.5,
                                        color_discrete_sequence=px.colors.qualitative.Pastel)
-                        st.plotly_chart(fig_sov,use_container_width=True)
+                        st.plotly_chart(fig_sov,use_container_width=True,key="nst7_sov_pie")
                     else:
                         st.info("블로그/카페/뉴스 탭에서 데이터를 먼저 수집하세요.")
 
@@ -1699,7 +1705,7 @@ with tab10:
         st.markdown("**📊 콘텐츠 채널별 점유율 (SOV)**")
         if total_content>0:
             df_sov=pd.DataFrame(list(content_counts.items()),columns=["채널","건수"])
-            st.plotly_chart(px.pie(df_sov,values="건수",names="채널",hole=0.5,color_discrete_sequence=px.colors.qualitative.Pastel),use_container_width=True)
+            st.plotly_chart(px.pie(df_sov,values="건수",names="채널",hole=0.5,color_discrete_sequence=px.colors.qualitative.Pastel,key="pc_12"),use_container_width=True,key="tab10_sov_pie")
         else:
             st.info("시장 분석 탭에서 데이터를 먼저 수집하세요.")
     with rep2:
