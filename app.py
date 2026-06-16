@@ -1041,9 +1041,24 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                             fig_box=px.box(disp_s,x="search_keyword",y="lprice",color="search_keyword",title="키워드별 가격 분포",labels={"lprice":"최저가(원)","search_keyword":"키워드"})
                             st.plotly_chart(fig_box,use_container_width=True,key="pc_2")
                     with ch2:
-                        mall_cnt=disp_s["mall_name"].value_counts().head(10).reset_index()
+                        # ★ seller 컬럼 우선 (productType=1은 maker로 대체됨)
+                        # seller: naver_client v4에서 추가한 실질 판매처 컬럼
+                        if "seller" in disp_s.columns:
+                            use_col = "seller"
+                            chart_title = "실질 판매처별 상품 노출 TOP10"
+                        else:
+                            # 구버전 호환: mall_name에서 네이버 계열 제외
+                            raw_cnt = disp_s["mall_name"].value_counts()
+                            non_naver = raw_cnt[~raw_cnt.index.str.lower().isin(["네이버","naver",""])]
+                            use_col = "mall_name" if len(non_naver)>=3 else ("maker" if "maker" in disp_s.columns else "mall_name")
+                            chart_title = "판매처별 상품 노출 TOP10"
+
+                        mall_cnt = disp_s[disp_s[use_col].fillna("").str.strip()!=""][use_col].value_counts().head(10).reset_index()
                         mall_cnt.columns=["판매처","상품수"]
-                        fig_mall=px.bar(mall_cnt,x="상품수",y="판매처",orientation="h",title="판매처별 상품 노출 TOP10",color="상품수",color_continuous_scale="Blues")
+                        fig_mall=px.bar(mall_cnt,x="상품수",y="판매처",orientation="h",
+                                        title=chart_title,
+                                        color="상품수",color_continuous_scale="Blues")
+                        fig_mall.update_layout(yaxis={"categoryorder":"total ascending"})
                         st.plotly_chart(fig_mall,use_container_width=True,key="pc_3")
 
                     st.divider()
@@ -1110,20 +1125,30 @@ NAVER_CLIENT_SECRET = "네이버 Client Secret"
                     df_bl["postdate_dt"]=df_bl["postdate"].apply(parse_pd)
                     st.metric("수집된 블로그 문서",f"{len(df_bl):,}건")
 
-                    # ① 키워드별 최근 블로그 게시물 분포 (라인 차트)
-                    # postdate: "20251105" → date만 추출하여 groupby
+                    # ① 키워드별 블로그 게시물 분포
+                    # postdate 분산도 확인 — 날짜가 몰리면 바 차트, 다양하면 라인 차트
                     valid_bl=df_bl[df_bl["postdate_dt"].notna()].copy()
+
+                    # 키워드별 건수 바 차트 (항상 표시)
+                    cnt_bl=df_bl["search_keyword"].value_counts().reset_index()
+                    cnt_bl.columns=["키워드","건수"]
+                    fig_bl_cnt=px.bar(cnt_bl,x="키워드",y="건수",color="키워드",
+                                      title="키워드별 블로그 포스팅 수",text_auto=True,
+                                      color_discrete_sequence=px.colors.qualitative.Pastel)
+                    st.plotly_chart(fig_bl_cnt,use_container_width=True,key="bl_kw_count")
+
+                    # 날짜 분포 차트 (날짜 다양성이 있을 때만)
                     if not valid_bl.empty:
                         valid_bl["date_only"]=valid_bl["postdate_dt"].dt.date
-                        blog_daily=valid_bl.groupby(["date_only","search_keyword"]).size().reset_index(name="content_count")
-                        fig_bl=px.line(blog_daily,x="date_only",y="content_count",color="search_keyword",
-                                       title="키워드별 최근 블로그 게시물 분포",markers=True,
-                                       labels={"date_only":"작성일","content_count":"게시물 수","search_keyword":"키워드"})
-                        st.plotly_chart(fig_bl,use_container_width=True,key="bl_daily_chart")
-                    else:
-                        cnt_bl=df_bl["search_keyword"].value_counts().reset_index()
-                        cnt_bl.columns=["키워드","건수"]
-                        st.plotly_chart(px.bar(cnt_bl,x="키워드",y="건수",color="키워드",title="키워드별 블로그 포스팅 수"),use_container_width=True,key="bl_daily_chart")
+                        unique_dates=valid_bl["date_only"].nunique()
+                        if unique_dates >= 3:
+                            blog_daily=valid_bl.groupby(["date_only","search_keyword"]).size().reset_index(name="content_count")
+                            fig_bl_line=px.line(blog_daily,x="date_only",y="content_count",color="search_keyword",
+                                           title="키워드별 최근 블로그 게시물 분포 (날짜별)",markers=True,
+                                           labels={"date_only":"작성일","content_count":"게시물 수","search_keyword":"키워드"})
+                            st.plotly_chart(fig_bl_line,use_container_width=True,key="bl_daily_chart")
+                        else:
+                            st.caption(f"💡 수집된 블로그 날짜 분포: {unique_dates}개 날짜 — 네이버 블로그 API 특성상 최신 날짜로 집계됩니다.")
 
                     bc1,bc2=st.columns(2)
                     with bc1:

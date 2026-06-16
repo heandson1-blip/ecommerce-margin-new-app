@@ -1,7 +1,7 @@
 """
-naver_client.py v3 — 네이버 API 클라이언트
-- 블로그: bloggername, bloggerlink 필드 포함
-- 쇼핑인사이트: 다중 키워드 지원 확인
+naver_client.py v4 — 네이버 API 클라이언트
+- 쇼핑: maker, brand, productType 필드 추가 (판매처 분류 개선)
+- 블로그: bloggername, bloggerlink 포함
 - display=100 (최대), 페이징 지원
 """
 import requests, json
@@ -45,22 +45,37 @@ class NaverClient:
                     .replace("&gt;",">").replace("&amp;","&"))
 
     def search_shopping(self, keywords, display=100, page=1, sort="sim"):
+        """
+        쇼핑 검색 — maker, brand, productType 추가
+        productType: 1=네이버 쇼핑 전용, 2=일반 쇼핑몰
+        mall_name이 '네이버'로만 오는 경우 maker/brand로 대체 가능
+        """
         display = min(display, 100)
         start   = (page - 1) * display + 1
         rows = []
         for kw in keywords:
             data = self._get("shop.json", {"query":kw,"display":display,"start":start,"sort":sort})
             for item in data.get("items",[]):
+                mall = item.get("mallName","")
+                maker = item.get("maker","")
+                brand = item.get("brand","")
+                # productType=1은 네이버 자체 상품 → mall_name을 maker로 보완
+                product_type = str(item.get("productType",""))
                 rows.append({
                     "search_keyword": kw,
-                    "title":    self._clean(item.get("title","")),
-                    "link":     item.get("link",""),
-                    "image":    item.get("image",""),
-                    "lprice":   int(item.get("lprice",0)) if item.get("lprice") else 0,
-                    "mall_name": item.get("mallName",""),
-                    "product_id": item.get("productId",""),
-                    "category1": item.get("category1",""),
-                    "category2": item.get("category2",""),
+                    "title":       self._clean(item.get("title","")),
+                    "link":        item.get("link",""),
+                    "image":       item.get("image",""),
+                    "lprice":      int(item.get("lprice",0)) if item.get("lprice") else 0,
+                    "mall_name":   mall,
+                    "maker":       maker,
+                    "brand":       brand,
+                    "product_type": product_type,
+                    # 판매처 실질 분류: productType=1이면 maker 사용
+                    "seller":      maker if (product_type=="1" and maker) else mall,
+                    "product_id":  item.get("productId",""),
+                    "category1":   item.get("category1",""),
+                    "category2":   item.get("category2",""),
                 })
         return pd.DataFrame(rows) if rows else pd.DataFrame()
 
@@ -127,10 +142,7 @@ class NaverClient:
         return pd.concat(dfs) if dfs else pd.DataFrame()
 
     def datalab_shopping_insight(self, category_id, keywords, start_date, end_date, time_unit="date"):
-        """
-        쇼핑인사이트 — 최대 5개 키워드 동시 조회
-        API가 keyword 배열을 받아 results 배열로 반환
-        """
+        """쇼핑인사이트 — 최대 5개 키워드 동시 조회"""
         kw_list = [{"name": k, "param": [k]} for k in keywords[:5]]
         body={
             "startDate":start_date,"endDate":end_date,"timeUnit":time_unit,
